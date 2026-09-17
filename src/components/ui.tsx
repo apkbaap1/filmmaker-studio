@@ -1,4 +1,4 @@
-import { ButtonHTMLAttributes, InputHTMLAttributes, LabelHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, LabelHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -80,9 +80,11 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
+export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cx("rounded-lg border border-border bg-surface", className)}>{children}</div>
+    <div className={cx("rounded-lg border border-border bg-surface", className)} {...rest}>
+      {children}
+    </div>
   );
 }
 

@@ -48,9 +48,20 @@ locations, equipment, and budget tracking.
     still upload your own video reference clips. Ask to have this added
     once you've picked a provider (Runway, Luma, etc.).
 
-  This is **Phase 1** of a larger previsualization roadmap:
-  1. ✅ Scene & Shot Builder (structured data model — this phase)
-  2. Storyboard view: chronological panel grid, drag-drop reorder
+- **Storyboard** — the film's shot-by-shot visual plan. Every panel is a live
+  view of its `ShotListItem` record (no duplicated storyboard data), grouped
+  under each scene's slugline in chronological order, showing the shot frame,
+  number, size, camera angle, movement, lens, duration, dialogue, sound,
+  transition, and director's note. Drag panels to reorder (persisted to the
+  shot's `order` field), duplicate a shot (the copy lands directly after its
+  source), delete, add, and edit inline. Panel edits are a *partial* update —
+  they only write the fields shown on the panel, so the detailed Shot Builder
+  fields (camera height, focal length, composition, blocking, etc.) are never
+  clobbered. Per-panel image upload/generation reuses the same asset gallery.
+
+  Previsualization roadmap:
+  1. ✅ Scene & Shot Builder (structured data model)
+  2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
   3. Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
   4. AI image generation driven by the full structured shot data
   5. AI video previsualization + provider abstraction

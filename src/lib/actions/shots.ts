@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
-import { shotSchema } from "@/lib/validation";
+import { shotSchema, storyboardShotSchema } from "@/lib/validation";
 
 export type FormState = { error?: string } | undefined;
 
@@ -73,6 +73,7 @@ export async function createShotAction(
     data: { ...nullifyEmptyStrings(parsed.data), sceneId },
   });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  revalidatePath(`/projects/${projectId}/storyboard`);
   return undefined;
 }
 
@@ -94,6 +95,7 @@ export async function updateShotAction(
     data: nullifyEmptyStrings(parsed.data),
   });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  revalidatePath(`/projects/${projectId}/storyboard`);
   return undefined;
 }
 
@@ -101,4 +103,109 @@ export async function deleteShotAction(projectId: string, sceneId: string, shotI
   await requireProjectAccess(projectId, { write: true });
   await prisma.shotListItem.delete({ where: { id: shotId } });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  revalidatePath(`/projects/${projectId}/storyboard`);
+}
+
+// --- Storyboard view actions ---
+// These reuse the same ShotListItem model and createShotAction/deleteShotAction
+// above. The one addition is a partial-update action: the storyboard panel only
+// edits a subset of a shot's fields, so it must never touch (and risk wiping)
+// the rest of the Phase 1 Shot Builder fields that aren't shown on the panel.
+
+function parseStoryboardShotForm(formData: FormData) {
+  return storyboardShotSchema.safeParse({
+    shotNumber: formData.get("shotNumber"),
+    shotType: formData.get("shotType"),
+    cameraAngle: formData.get("cameraAngle") ?? "",
+    cameraMovement: formData.get("cameraMovement") ?? "",
+    lens: formData.get("lens") ?? "",
+    durationSeconds: formData.get("durationSeconds") || undefined,
+    dialogueAudio: formData.get("dialogueAudio") ?? "",
+    soundDesignNotes: formData.get("soundDesignNotes") ?? "",
+    transition: formData.get("transition") ?? "",
+    directorNotes: formData.get("directorNotes") ?? "",
+  });
+}
+
+export async function updateShotStoryboardFieldsAction(
+  projectId: string,
+  sceneId: string,
+  shotId: string,
+  _prevState: FormState,
+  formData: FormData
+): Promise<FormState> {
+  await requireProjectAccess(projectId, { write: true });
+  const parsed = parseStoryboardShotForm(formData);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  await prisma.shotListItem.update({
+    where: { id: shotId },
+    data: nullifyEmptyStrings(parsed.data),
+  });
+  revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  revalidatePath(`/projects/${projectId}/storyboard`);
+  return undefined;
+}
+
+export async function duplicateShotAction(projectId: string, sceneId: string, shotId: string) {
+  await requireProjectAccess(projectId, { write: true });
+
+  // Shots created before any manual reordering all share order=0, so the whole
+  // scene is renumbered here. That makes "insert directly after the source"
+  // well-defined instead of appending the copy to the end of the scene.
+  const shots = await prisma.shotListItem.findMany({
+    where: { sceneId },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+  });
+
+  const sourceIndex = shots.findIndex((s) => s.id === shotId);
+  if (sourceIndex === -1) return;
+  const source = shots[sourceIndex];
+
+  const { id, createdAt, updatedAt, ...copyableFields } = source;
+  void id;
+  void createdAt;
+  void updatedAt;
+
+  await prisma.$transaction([
+    ...shots.map((s, i) =>
+      prisma.shotListItem.update({
+        where: { id: s.id },
+        data: { order: i <= sourceIndex ? i : i + 1 },
+      })
+    ),
+    prisma.shotListItem.create({
+      data: {
+        ...copyableFields,
+        shotNumber: `${source.shotNumber} copy`,
+        order: sourceIndex + 1,
+      },
+    }),
+  ]);
+
+  revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  revalidatePath(`/projects/${projectId}/storyboard`);
+}
+
+export async function reorderShotsAction(
+  projectId: string,
+  sceneId: string,
+  orderedShotIds: string[]
+) {
+  await requireProjectAccess(projectId, { write: true });
+
+  await prisma.$transaction(
+    orderedShotIds.map((shotId, index) =>
+      // updateMany (not update) so the sceneId filter is enforced at the
+      // database level instead of requiring a compound unique key.
+      prisma.shotListItem.updateMany({
+        where: { id: shotId, sceneId },
+        data: { order: index },
+      })
+    )
+  );
+
+  revalidatePath(`/projects/${projectId}/storyboard`);
 }

@@ -15,6 +15,7 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
     { href: base, label: "Overview", exact: true },
     { href: `${base}/scenes`, label: "Script" },
     { href: `${base}/visualization`, label: "Visualization" },
+    { href: `${base}/storyboard`, label: "Storyboard" },
     { href: `${base}/schedule`, label: "Schedule" },
     { href: `${base}/cast-crew`, label: "Cast & Crew" },
     { href: `${base}/locations`, label: "Locations" },

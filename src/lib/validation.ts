@@ -139,6 +139,22 @@ export const budgetLineItemSchema = z.object({
   notes: z.string().max(1000).optional().or(z.literal("")),
 });
 
+// Compact field set for the Storyboard panel's inline quick-edit. Deliberately
+// smaller than shotSchema — it's a partial update (see updateShotStoryboardFieldsAction)
+// so fields not listed here are left untouched on the underlying shot record.
+export const storyboardShotSchema = z.object({
+  shotNumber: z.string().min(1).max(20),
+  shotType: z.string().min(1).max(100),
+  cameraAngle: z.string().max(100).optional().or(z.literal("")),
+  cameraMovement: z.string().max(100).optional().or(z.literal("")),
+  lens: z.string().max(100).optional().or(z.literal("")),
+  durationSeconds: z.coerce.number().min(0).max(3600).optional(),
+  dialogueAudio: z.string().max(1000).optional().or(z.literal("")),
+  soundDesignNotes: z.string().max(1000).optional().or(z.literal("")),
+  transition: z.string().max(100).optional().or(z.literal("")),
+  directorNotes: z.string().max(2000).optional().or(z.literal("")),
+});
+
 export const assetUploadSchema = z.object({
   caption: z.string().max(300).optional().or(z.literal("")),
   type: z.enum(["IMAGE", "VIDEO", "DIAGRAM"]),
