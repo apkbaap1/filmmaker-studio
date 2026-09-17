@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum TimeOfDay {
+  DAY
+  NIGHT
+  DAWN
+  DUSK
+}
+
+enum IntExt {
+  INT
+  EXT
+  INT_EXT
+}
+
+enum ShotStatus {
+  PLANNED
+  SHOT
+  CUT
+}
+
+enum EquipmentSource {
+  OWNED
+  RENTED
+  BORROWED
+}
+
+enum CastingStatus {
+  CONSIDERING
+  OFFERED
+  CONFIRMED
+  DECLINED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedProjects Project[]       @relation("ProjectOwner")
+  memberships   ProjectMember[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  logline     String?
+  description String?
+  genre       String?
+  format      String?
+  status      String   @default("Development")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ownerId String
+  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  members          ProjectMember[]
+  scenes           Scene[]
+  scheduleDays     ScheduleDay[]
+  castMembers      CastMember[]
+  crewMembers      CrewMember[]
+  locations        Location[]
+  equipmentItems   Equipment[]
+  budgetCategories BudgetCategory[]
+}
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(VIEWER)
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Scene {
+  id         String    @id @default(cuid())
+  projectId  String
+  number     String
+  intExt     IntExt    @default(INT)
+  location   String
+  timeOfDay  TimeOfDay @default(DAY)
+  synopsis   String?
+  scriptText String?
+  pageEights Float     @default(1)
+  order      Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shots         ShotListItem[]
+  scheduleItems ScheduleItem[]
+
+  @@index([projectId])
+}
+
+model ShotListItem {
+  id             String     @id @default(cuid())
+  sceneId        String
+  shotNumber     String
+  shotType       String
+  description    String?
+  cameraMovement String?
+  lens           String?
+  equipmentNotes String?
+  status         ShotStatus @default(PLANNED)
+  order          Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  scene Scene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+  @@index([sceneId])
+}
+
+model ScheduleDay {
+  id        String   @id @default(cuid())
+  projectId String
+  dayNumber Int
+  date      DateTime
+  callTime  String?
+  wrapTime  String?
+  location  String?
+  weather   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   ScheduleItem[]
+
+  @@index([projectId])
+}
+
+model ScheduleItem {
+  id            String  @id @default(cuid())
+  scheduleDayId String
+  sceneId       String?
+  startTime     String?
+  endTime       String?
+  notes         String?
+  order         Int     @default(0)
+
+  scheduleDay ScheduleDay @relation(fields: [scheduleDayId], references: [id], onDelete: Cascade)
+  scene       Scene?      @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+
+  @@index([scheduleDayId])
+}
+
+model CastMember {
+  id            String        @id @default(cuid())
+  projectId     String
+  actorName     String?
+  characterName String
+  contactEmail  String?
+  contactPhone  String?
+  status        CastingStatus @default(CONSIDERING)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model CrewMember {
+  id           String   @id @default(cuid())
+  projectId    String
+  name         String
+  department   String
+  position     String
+  contactEmail String?
+  contactPhone String?
+  dayRate      Float?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Location {
+  id           String   @id @default(cuid())
+  projectId    String
+  name         String
+  address      String?
+  contactName  String?
+  contactPhone String?
+  permitStatus String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Equipment {
+  id        String          @id @default(cuid())
+  projectId String
+  name      String
+  category  String
+  quantity  Int             @default(1)
+  source    EquipmentSource @default(OWNED)
+  dailyCost Float?
+  vendor    String?
+  notes     String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model BudgetCategory {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   BudgetLineItem[]
+
+  @@index([projectId])
+}
+
+model BudgetLineItem {
+  id          String   @id @default(cuid())
+  categoryId  String
+  description String
+  estimated   Float    @default(0)
+  actual      Float    @default(0)
+  notes       String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+}
