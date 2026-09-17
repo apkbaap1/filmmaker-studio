@@ -172,3 +172,94 @@ export function describeFramePosition(frame: FrameState, subjectLabel = "Subject
   const vertical = frame.subjectY < 35 ? ", high in frame" : frame.subjectY > 65 ? ", low in frame" : "";
   return `${subjectLabel} ${horizontal}${vertical}`;
 }
+
+/**
+ * Normalises an angle to the half-open range [-180, 180).
+ */
+function normalizeAngle(degrees: number): number {
+  return ((((degrees + 180) % 360) + 360) % 360) - 180;
+}
+
+/**
+ * Which way the subject is turned relative to the camera, as a clause.
+ *
+ * Pure geometry: the bearing from the subject to the camera is compared with
+ * the subject's own facing, and the difference is bucketed into the five
+ * orientations a director would name. Nothing else about the layout is read,
+ * and no handedness ("turned to frame left") is claimed — that would depend on
+ * conventions the canvas does not actually encode.
+ */
+export function describeSubjectFacing(
+  blocking: ShotBlocking,
+  subjectLabel = "Subject"
+): string | undefined {
+  const subject = blocking.subjects[0];
+  if (!subject) return undefined;
+
+  const camera = blocking.cameraStart;
+  const dx = camera.x - subject.start.x;
+  const dy = camera.y - subject.start.y;
+  if (dx === 0 && dy === 0) return undefined;
+
+  // Inverse of toRadians: back to the 0 = up-the-stage, clockwise convention.
+  const bearingToCamera = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+  const offset = Math.abs(normalizeAngle(subject.start.orientation - bearingToCamera));
+
+  const orientation =
+    offset < 22.5
+      ? "facing the camera"
+      : offset < 67.5
+        ? "angled toward the camera"
+        : offset < 112.5
+          ? "in profile to the camera"
+          : offset < 157.5
+            ? "angled away from the camera"
+            : "facing away from the camera";
+
+  return `${subject.label || subjectLabel} ${orientation}`;
+}
+
+const PROP_LAYER_ORDER = ["foreground", "midground", "background"] as const;
+
+/**
+ * Props grouped under the depth layer the filmmaker explicitly assigned them.
+ * Only the label and the stated layer are used — a prop's X/Y never becomes a
+ * spatial relationship in prose, because the canvas does not record which
+ * relationships the filmmaker considered meaningful.
+ */
+export function describePropLayers(blocking: ShotBlocking): string | undefined {
+  const groups = PROP_LAYER_ORDER.map((layer) => {
+    const labels = blocking.props.filter((p) => p.layer === layer).map((p) => p.label);
+    return labels.length > 0 ? `${layer}: ${labels.join(", ")}` : undefined;
+  }).filter((g): g is string => Boolean(g));
+
+  return groups.length > 0 ? groups.join("; ") : undefined;
+}
+
+/**
+ * Deterministic, already-textual facts derived from a shot's blocking, for the
+ * prompt compiler to consume. Returns `undefined` when the shot has no saved
+ * blocking at all: an untouched canvas is a default, not a compositional
+ * decision, and defaults must never reach a prompt.
+ */
+export interface DerivedBlocking {
+  /** Frame placement in composition vocabulary; only a fallback for an unstated composition. */
+  framePlacement?: string;
+  subjectFacing?: string;
+  propLayers?: string;
+}
+
+export function deriveBlockingContext(
+  value: unknown,
+  subjectLabel?: string
+): DerivedBlocking | undefined {
+  if (value === null || value === undefined) return undefined;
+  const parsed = blockingSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+
+  return {
+    framePlacement: describeFramePosition(parsed.data.frame, subjectLabel),
+    subjectFacing: describeSubjectFacing(parsed.data, subjectLabel),
+    propLayers: describePropLayers(parsed.data),
+  };
+}

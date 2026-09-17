@@ -212,11 +212,11 @@ describe("image-to-video preserve / animate", () => {
 
   it("lists nothing it was not told about", () => {
     const { spec } = generateImageToVideoPrompt(sparseContext);
-    assert.deepEqual(spec.continuity.animate, []);
     assert.ok(!spec.continuity.preserve.includes("Lighting setup"));
     assert.ok(!spec.continuity.preserve.includes("Location"));
-    // Environmental movement has no source field yet, so it can never be claimed.
+    // The shot states no environmental movement, so it is never claimed as one.
     assert.ok(!spec.continuity.animate.includes("Environmental movement"));
+    assert.deepEqual(spec.continuity.animate, []);
   });
 
   it("only populates continuity for the image-to-video mode", () => {

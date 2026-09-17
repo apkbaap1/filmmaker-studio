@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
-import { parseBlocking } from "@/lib/blocking";
+import { deriveBlockingContext, parseBlocking } from "@/lib/blocking";
 import { formatSlugline } from "@/lib/scene-format";
 import { buildShotContext, generateImagePrompt, generateVideoPrompt } from "@/lib/prompt";
+import { getImageProvider } from "@/lib/ai/image-providers";
 import { ShotDesign } from "./shot-design";
+import { ShotImageGeneration } from "./shot-image-generation";
 
 export default async function ShotDesignPage({
   params,
@@ -28,9 +30,23 @@ export default async function ShotDesignPage({
 
   // The same chain the compiler uses, rendered here so the filmmaker can see
   // that what they set on this page is exactly what reaches the prompt.
-  const context = buildShotContext(shot, scene, scene.characters);
+  const context = buildShotContext(
+    shot,
+    scene,
+    scene.characters,
+    deriveBlockingContext(shot.blocking, subjectLabel)
+  );
   const imagePrompt = generateImagePrompt(context);
   const videoPrompt = generateVideoPrompt(context);
+
+  const generations = await prisma.generation.findMany({
+    where: { shotId, projectId },
+    orderBy: { createdAt: "desc" },
+    include: { asset: { select: { mimeType: true } } },
+  });
+
+  // Only whether a key is present crosses to the browser — never the key.
+  const imageProvider = getImageProvider();
 
   return (
     <div className="space-y-6">
@@ -65,8 +81,30 @@ export default async function ShotDesignPage({
           subjectMovement: shot.subjectMovement ?? "",
           subjectStartPosition: shot.subjectStartPosition ?? "",
           subjectEndPosition: shot.subjectEndPosition ?? "",
+          environmentalMovement: shot.environmentalMovement ?? "",
           durationSeconds: shot.durationSeconds?.toString() ?? "",
         }}
+      />
+
+      <ShotImageGeneration
+        projectId={projectId}
+        sceneId={sceneId}
+        shotId={shotId}
+        compiledPrompt={imagePrompt.text}
+        providerLabel={imageProvider.label}
+        imageGenAvailable={imageProvider.isConfigured()}
+        generations={generations.map((g) => ({
+          id: g.id,
+          status: g.status,
+          source: g.source,
+          promptUsed: g.promptUsed,
+          promptEdited: g.promptEdited,
+          error: g.error,
+          providerId: g.providerId,
+          createdAt: g.createdAt.toISOString(),
+          assetId: g.assetId,
+          assetMimeType: g.asset?.mimeType ?? null,
+        }))}
       />
 
       <Card className="p-5">

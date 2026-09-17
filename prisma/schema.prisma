@@ -56,6 +56,26 @@ enum AssetSource {
   GENERATED
 }
 
+enum GenerationStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum GenerationMode {
+  IMAGE
+}
+
+/**
+ * QUICK   — the filmmaker typed a free-text prompt directly.
+ * STRUCTURED — the prompt was compiled from the shot by the prompt compiler.
+ */
+enum GenerationSource {
+  QUICK
+  STRUCTURED
+}
+
 model User {
   id           String   @id @default(cuid())
   name         String
@@ -91,6 +111,7 @@ model Project {
   equipmentItems   Equipment[]
   budgetCategories BudgetCategory[]
   assets           Asset[]
+  generations      Generation[]
 }
 
 model ProjectMember {
@@ -128,6 +149,7 @@ model Scene {
   scheduleItems ScheduleItem[]
   assets        Asset[]
   characters    CastMember[]
+  generations   Generation[]
 
   @@index([projectId])
 }
@@ -161,6 +183,10 @@ model ShotListItem {
   subjectStartPosition String?
   subjectEndPosition   String?
   characterBlocking    String?
+
+  // Movement in the environment itself (fog drifting, rain, crowd) — distinct
+  // from camera and subject movement.
+  environmentalMovement String?
 
   // Composition. `composition` is spatial placement (subject on the left third)
   // and `framing` is shot scale (tight/loose) — two different things. Both are
@@ -200,10 +226,62 @@ model ShotListItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  scene  Scene   @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  assets Asset[]
+  scene       Scene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  assets      Asset[]
+  generations Generation[]
 
   @@index([sceneId])
+}
+
+/**
+ * One generation attempt. A regeneration creates another row rather than
+ * overwriting this one, so a shot accumulates its generation history.
+ * `promptUsed` is the exact text sent to the provider — including any hand
+ * edits — so the record always reflects what actually produced the image, while
+ * the Shot stays the source of truth for compiling future generations.
+ */
+model Generation {
+  id        String           @id @default(cuid())
+  projectId String
+  sceneId   String?
+  shotId    String?
+  mode      GenerationMode   @default(IMAGE)
+  source    GenerationSource
+  status    GenerationStatus @default(QUEUED)
+
+  /**
+   * Exactly what was sent to the provider.
+   */
+  promptUsed   String
+  /**
+   * True when the filmmaker edited the compiled prompt before generating.
+   */
+  promptEdited Boolean @default(false)
+  /**
+   * The CinematicPromptSpec at generation time; null for free-text generations.
+   */
+  specSnapshot Json?
+
+  /**
+   * Which image provider ran it, and which prompt adapter formatted the text.
+   */
+  providerId       String
+  promptProviderId String?
+
+  error String?
+
+  assetId String? @unique
+  asset   Asset?  @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene   Scene?        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  shot    ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([shotId])
 }
 
 model Asset {
@@ -220,9 +298,10 @@ model Asset {
   prompt    String?
   createdAt DateTime    @default(now())
 
-  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  scene   Scene?        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  shot    ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene      Scene?        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  shot       ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  generation Generation?
 
   @@index([projectId])
   @@index([sceneId])

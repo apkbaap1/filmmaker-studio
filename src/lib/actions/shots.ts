@@ -32,6 +32,7 @@ function parseShotForm(formData: FormData) {
     subjectStartPosition: formData.get("subjectStartPosition") ?? "",
     subjectEndPosition: formData.get("subjectEndPosition") ?? "",
     characterBlocking: formData.get("characterBlocking") ?? "",
+    environmentalMovement: formData.get("environmentalMovement") ?? "",
 
     composition: formData.get("composition") ?? "",
     finalComposition: formData.get("finalComposition") ?? "",
@@ -256,6 +257,7 @@ export async function updateShotTemporalAction(
     subjectMovement: formData.get("subjectMovement") ?? "",
     subjectStartPosition: formData.get("subjectStartPosition") ?? "",
     subjectEndPosition: formData.get("subjectEndPosition") ?? "",
+    environmentalMovement: formData.get("environmentalMovement") ?? "",
     durationSeconds: formData.get("durationSeconds") || undefined,
   });
 

@@ -6,7 +6,10 @@ import {
   blockingSchema,
   crossesAxis,
   defaultBlocking,
+  deriveBlockingContext,
   describeFramePosition,
+  describePropLayers,
+  describeSubjectFacing,
   fieldOfViewEdges,
   parseBlocking,
   type ShotBlocking,
@@ -103,6 +106,140 @@ describe("spatial derivations", () => {
     assert.match(describeFramePosition({ subjectX: 20, subjectY: 50, subjectScale: 40, eyelineY: 33 }, "Ravi"), /left third/);
     assert.match(describeFramePosition({ subjectX: 80, subjectY: 50, subjectScale: 40, eyelineY: 33 }, "Ravi"), /right third/);
     assert.match(describeFramePosition({ subjectX: 50, subjectY: 50, subjectScale: 40, eyelineY: 33 }, "Ravi"), /centred/);
+  });
+});
+
+describe("blocking → deterministic description", () => {
+  /** Camera downstage at (50,85); subject at (50,40). Bearing subject→camera is 180°. */
+  function facing(orientation: number): string | undefined {
+    const blocking: ShotBlocking = {
+      ...defaultBlocking("Ravi"),
+      subjects: [{ id: "a", label: "Ravi", start: { x: 50, y: 40, orientation } }],
+    };
+    return describeSubjectFacing(blocking, "Ravi");
+  }
+
+  it("reads the subject's facing off the geometry, in every band", () => {
+    assert.equal(facing(180), "Ravi facing the camera");
+    assert.equal(facing(135), "Ravi angled toward the camera");
+    assert.equal(facing(90), "Ravi in profile to the camera");
+    assert.equal(facing(45), "Ravi angled away from the camera");
+    assert.equal(facing(0), "Ravi facing away from the camera");
+  });
+
+  it("is symmetric — the side the subject turns to does not change the band", () => {
+    assert.equal(facing(90), facing(270));
+    assert.equal(facing(135), facing(225));
+  });
+
+  it("groups props under their stated layer and never emits coordinates", () => {
+    const described = describePropLayers({
+      ...defaultBlocking(),
+      props: [
+        { id: "p1", label: "Bench", x: 12.5, y: 70, layer: "foreground" },
+        { id: "p2", label: "Platform clock", x: 80, y: 20, layer: "background" },
+        { id: "p3", label: "Suitcase", x: 40, y: 66, layer: "foreground" },
+      ],
+    });
+    assert.equal(described, "foreground: Bench, Suitcase; background: Platform clock");
+    assert.ok(!/\d/.test(described ?? ""), `no coordinates may leak: ${described}`);
+  });
+
+  it("emits nothing for props when none were placed", () => {
+    assert.equal(describePropLayers(defaultBlocking()), undefined);
+  });
+
+  it("treats a shot that never saved blocking as having no blocking at all", () => {
+    assert.equal(deriveBlockingContext(null, "Ravi"), undefined);
+    assert.equal(deriveBlockingContext(undefined), undefined);
+  });
+
+  it("does not fall back to a default layout when the stored blob is malformed", () => {
+    // parseBlocking recovers a default so the page still opens; the compiler
+    // path must not, because a recovered default is not a stated decision.
+    assert.equal(parseBlocking({ nonsense: true }, "Ravi").version, 1);
+    assert.equal(deriveBlockingContext({ nonsense: true }, "Ravi"), undefined);
+  });
+});
+
+describe("blocking in the compiled prompt", () => {
+  const scene = { number: "4", intExt: "INT", location: "ABANDONED RAILWAY STATION", timeOfDay: "NIGHT" };
+
+  const placed: ShotBlocking = {
+    ...defaultBlocking("Ravi"),
+    subjects: [{ id: "a", label: "Ravi", start: { x: 50, y: 40, orientation: 180 } }],
+    props: [{ id: "p1", label: "Bench", x: 20, y: 70, layer: "foreground" }],
+    frame: { subjectX: 20, subjectY: 50, subjectScale: 45, eyelineY: 33 },
+  };
+
+  it("lets the filmmaker's typed composition win over the canvas's frame placement", () => {
+    const { spec, text } = generateImagePrompt(
+      buildShotContext(
+        { shotNumber: "1", shotType: "Medium Close-Up", composition: "Ravi on the left third" },
+        scene,
+        [{ characterName: "Ravi" }],
+        deriveBlockingContext(placed, "Ravi")
+      )
+    );
+    assert.equal(spec.cinematography.composition?.value, "Ravi on the left third");
+    assert.equal(spec.cinematography.composition?.from, "shot.composition");
+    assert.ok(text.includes("Ravi on the left third"));
+  });
+
+  it("falls back to the frame placement only when composition was left blank", () => {
+    const { spec } = generateImagePrompt(
+      buildShotContext({ shotNumber: "1", shotType: "Medium Close-Up" }, scene, [{ characterName: "Ravi" }],
+        deriveBlockingContext(placed, "Ravi"))
+    );
+    assert.equal(spec.cinematography.composition?.value, "Ravi on the left third");
+    assert.equal(spec.cinematography.composition?.from, "shot.blocking.frame");
+  });
+
+  it("carries facing and props into the prompt without any coordinates", () => {
+    const { spec, text } = generateImagePrompt(
+      buildShotContext({ shotNumber: "1", shotType: "Medium Close-Up" }, scene, [{ characterName: "Ravi" }],
+        deriveBlockingContext(placed, "Ravi"))
+    );
+    assert.equal(spec.subject.facing?.value, "Ravi facing the camera");
+    assert.equal(spec.environment.props?.value, "foreground: Bench");
+    assert.ok(text.includes("Subject facing: Ravi facing the camera"), text);
+    assert.ok(text.includes("Props — foreground: Bench"), text);
+    assert.ok(!/\bx\s*[:=]|\b\d{1,3}\s*,\s*\d{1,3}\b/.test(text), `no raw coordinates:\n${text}`);
+  });
+
+  it("adds nothing at all when the shot has no saved blocking", () => {
+    const { spec } = generateImagePrompt(
+      buildShotContext({ shotNumber: "1", shotType: "Medium Close-Up" }, scene, [{ characterName: "Ravi" }])
+    );
+    assert.equal(spec.subject.facing, undefined);
+    assert.equal(spec.environment.props, undefined);
+    assert.equal(spec.cinematography.composition, undefined);
+  });
+});
+
+describe("environmental movement", () => {
+  it("compiles from its own field and is described as environmental, not camera or subject", () => {
+    const { spec, text } = generateVideoPrompt(
+      buildShotContext({
+        shotNumber: "1",
+        shotType: "Medium Close-Up",
+        cameraMovement: "Dolly In",
+        subjectMovement: "Ravi walks slowly and turns toward the camera",
+        environmentalMovement: "Light fog drifting through the station",
+      })
+    );
+    assert.equal(spec.environment.movement?.value, "Light fog drifting through the station");
+    assert.equal(spec.environment.movement?.from, "shot.environmentalMovement");
+    assert.ok(text.includes("Environmental movement: Light fog drifting through the station"), text);
+    assert.ok(!text.includes("Camera movement — Light fog"));
+  });
+
+  it("stays absent when the filmmaker did not state any", () => {
+    const { spec, text } = generateVideoPrompt(
+      buildShotContext({ shotNumber: "1", shotType: "Wide Shot", cameraMovement: "Dolly In" })
+    );
+    assert.equal(spec.environment.movement, undefined);
+    assert.ok(!text.includes("Environmental movement"));
   });
 });
 

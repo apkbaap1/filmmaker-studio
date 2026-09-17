@@ -78,7 +78,7 @@ export function compileSpec(
   context: ShotVisualizationContext,
   mode: PromptMode
 ): CinematicPromptSpec {
-  const { shot, scene, characters } = context;
+  const { shot, scene, characters, blocking } = context;
 
   const spec: CinematicPromptSpec = {
     mode,
@@ -101,6 +101,7 @@ export function compileSpec(
       })),
       action: specified(scene?.action, "scene.action"),
       blocking: specified(shot.characterBlocking, "shot.characterBlocking"),
+      facing: specified(blocking?.subjectFacing, "shot.blocking.subjects"),
       emotionalBeat: specified(scene?.emotionalBeat, "scene.emotionalBeat"),
     },
 
@@ -110,8 +111,8 @@ export function compileSpec(
         ? specified(INT_EXT_LABEL[scene.intExt] ?? scene.intExt, "scene.intExt")
         : undefined,
       timeOfDay: specified(scene?.timeOfDay, "scene.timeOfDay"),
-      // No source field on the Shot model yet — see types.ts.
-      movement: undefined,
+      movement: specified(shot.environmentalMovement, "shot.environmentalMovement"),
+      props: specified(blocking?.propLayers, "shot.blocking.props"),
     },
 
     cinematography: {
@@ -120,7 +121,12 @@ export function compileSpec(
       cameraHeight: specified(shot.cameraHeight, "shot.cameraHeight"),
       lens: specified(shot.lens, "shot.lens"),
       focalLength: specified(shot.focalLength, "shot.focalLength"),
-      composition: specified(shot.composition, "shot.composition"),
+      // Typed composition always wins. The canvas's frame placement is only a
+      // fallback for a composition the filmmaker left blank — it never
+      // overwrites, reworders or competes with what they actually wrote.
+      composition:
+        specified(shot.composition, "shot.composition") ??
+        specified(blocking?.framePlacement, "shot.blocking.frame"),
       framing: specified(shot.framing, "shot.framing"),
       depthOfField: specified(shot.depthOfField, "shot.depthOfField"),
     },

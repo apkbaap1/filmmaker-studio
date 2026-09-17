@@ -84,12 +84,27 @@ locations, equipment, and budget tracking.
   dragging never rewrites the shot's text fields: promoting a frame placement
   into composition wording is an explicit button.
 
+- **AI image generation from a shot** (`/projects/…/scenes/…/shots/…`) — two
+  paths, side by side. The original free-text *Generate with AI* button is
+  unchanged: type a description, get an image. The new **Filmmaker Generation**
+  runs the structured path instead —
+  `Shot + Blocking → ShotVisualizationContext → CinematicPromptSpec → image
+  renderer → prompt adapter → image provider adapter → stored Asset`. The
+  compiled prompt is shown *before* anything is generated and can be copied or
+  edited; an edited prompt is sent and recorded verbatim, never silently
+  recompiled. Every attempt is a `Generation` row (queued → processing →
+  completed/failed) with the prompt used, a snapshot of the spec, the provider,
+  and any provider error, so regenerating adds to the history rather than
+  overwriting it. Provider credentials are read only inside `server-only`
+  modules — a test walks the real import graph to prove no client component can
+  reach them.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
   3. ✅ Prompt Compiler Engine (IR + renderers + provider adapters)
   4. ✅ Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
-  5. AI image generation driven by the compiler
+  5. ✅ AI image generation driven by the compiler
   6. AI video previsualization + video provider adapters
   7. Timeline/edit view (shot clips, transitions, running duration)
   8. Camera blocking diagram (draggable top-down 2D)
@@ -154,6 +169,10 @@ OPENAI_API_KEY="sk-..."
 Without it, the button is still there but shows a message pointing back
 here instead of erroring.
 
+To use an OpenAI-compatible endpoint instead (Azure OpenAI, a gateway, a local
+stub), set `OPENAI_BASE_URL` as well — it defaults to
+`https://api.openai.com/v1`.
+
 Uploaded and generated files are saved to `./storage/uploads` on disk by
 default (configurable via `STORAGE_DIR`). This works great for self-hosting
 but **not** on Vercel, which has no persistent filesystem — see
@@ -177,7 +196,11 @@ src/middleware.ts              Route protection
 src/lib/actions/*              Server actions (mutations) per module
 src/lib/validation.ts          Zod schemas shared by every form
 src/lib/storage.ts             Local-disk file storage for uploaded/generated assets
-src/lib/ai/openai-image.ts     AI storyboard image generation (OpenAI)
+src/lib/ai/openai-image.ts     OpenAI image HTTP call (server-only; reads the key)
+src/lib/ai/image-providers/    Image provider registry + adapters (text → pixels)
+src/lib/prompt/                Prompt compiler: IR, renderers, prompt adapters
+src/lib/shot-prompt.ts         DB ↔ compiler bridge (the only place a Shot becomes a prompt)
+src/lib/actions/generations.ts Structured generation: queue, run, persist
 src/app/api/assets/[id]/file/  Authenticated file-serving route
 src/app/projects/[projectId]/  Project workspace: scenes, visualization,
                                 schedule, cast-crew, locations, equipment,

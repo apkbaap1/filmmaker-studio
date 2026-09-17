@@ -91,15 +91,27 @@ function environmentSentence(spec: CinematicPromptSpec): string | undefined {
   const location = v(spec.environment.location);
   const intExt = v(spec.environment.interiorExterior);
   const time = v(spec.environment.timeOfDay);
-  if (!location && !time) return undefined;
+  const props = v(spec.environment.props);
 
   const place = location && intExt ? `${location} (${intExt})` : location;
-  return commaSentence([place && `Setting — ${place}`, time && (place ? time : `Time of day — ${time}`)]);
+  const setting =
+    location || time
+      ? commaSentence([place && `Setting — ${place}`, time && (place ? time : `Time of day — ${time}`)])
+      : undefined;
+
+  // Props carry their own semicolons (foreground: …; background: …), so they
+  // are their own sentence rather than another clause in the setting.
+  return sentences([setting, props && `Props — ${props}`]);
 }
 
 function actionSentence(spec: CinematicPromptSpec): string | undefined {
   const blocking = v(spec.subject.blocking);
-  return sentences([v(spec.subject.action), blocking && `Blocking: ${blocking}`]);
+  const facing = v(spec.subject.facing);
+  return sentences([
+    v(spec.subject.action),
+    blocking && `Blocking: ${blocking}`,
+    facing && `Subject facing: ${facing}`,
+  ]);
 }
 
 function compositionSentence(spec: CinematicPromptSpec): string | undefined {

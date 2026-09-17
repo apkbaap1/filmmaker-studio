@@ -79,6 +79,7 @@ export function generateStoryboardPrompt(
 export { buildShotContext, compileSpec };
 export { DEFAULT_PROVIDER_ID, getProvider, listProviders } from "./providers/index.ts";
 export type {
+  BlockingContext,
   CharacterInput,
   CinematicPromptSpec,
   CompiledPrompt,

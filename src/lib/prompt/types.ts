@@ -68,6 +68,11 @@ export interface CinematicPromptSpec {
     characters: CharacterRef[];
     action: Maybe<string>;
     blocking: Maybe<string>;
+    /**
+     * Which way the subject is turned relative to the camera. Derived from the
+     * blocking canvas by pure geometry — never from prose, and never guessed.
+     */
+    facing: Maybe<string>;
     emotionalBeat: Maybe<string>;
   };
 
@@ -75,12 +80,13 @@ export interface CinematicPromptSpec {
     location: Maybe<string>;
     interiorExterior: Maybe<string>;
     timeOfDay: Maybe<string>;
-    /**
-     * Environmental motion (rain, steam, crowd drift…). The Shot model has no
-     * field feeding this yet, so it currently always compiles to `undefined`.
-     * The slot exists so adding the field later needs no IR change.
-     */
+    /** Environmental motion (rain, steam, crowd drift…), from `shot.environmentalMovement`. */
     movement: Maybe<string>;
+    /**
+     * Props grouped under the depth layer the filmmaker assigned them on the
+     * blocking canvas. Only labels and stated layers — never coordinates.
+     */
+    props: Maybe<string>;
   };
 
   cinematography: {
@@ -184,6 +190,8 @@ export interface ShotInput {
   subjectEndPosition?: string | null;
   characterBlocking?: string | null;
 
+  environmentalMovement?: string | null;
+
   composition?: string | null;
   finalComposition?: string | null;
   framing?: string | null;
@@ -215,11 +223,31 @@ export interface CharacterInput {
   characterName: string;
 }
 
+/**
+ * Facts derived from the shot's spatial blocking, already converted to text by
+ * the caller (`deriveBlockingContext` in src/lib/blocking.ts). The compiler
+ * receives descriptions, never coordinates, so the geometry layer stays out of
+ * the prompt engine and no mapping is invented here.
+ *
+ * Absent entirely when the shot has never had blocking saved — an untouched
+ * canvas is a default, not a decision.
+ */
+export interface BlockingContext {
+  /**
+   * Frame placement in composition vocabulary. Used only when the filmmaker
+   * left `composition` blank; typed composition always wins.
+   */
+  framePlacement?: string;
+  subjectFacing?: string;
+  propLayers?: string;
+}
+
 /** A shot resolved together with the scene and characters that give it context. */
 export interface ShotVisualizationContext {
   shot: ShotInput;
   scene?: SceneInput;
   characters: CharacterInput[];
+  blocking?: BlockingContext;
 }
 
 /** What the public compiler API returns: the structured spec plus its rendered, editable text. */

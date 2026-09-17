@@ -96,6 +96,7 @@ type Shot = {
   subjectStartPosition: string | null;
   subjectEndPosition: string | null;
   characterBlocking: string | null;
+  environmentalMovement: string | null;
 
   composition: string | null;
   finalComposition: string | null;
@@ -256,6 +257,18 @@ function ShotFields({ defaultValues }: { defaultValues?: Partial<Shot> }) {
               name="subjectEndPosition"
               defaultValue={defaultValues?.subjectEndPosition ?? ""}
               placeholder="Facing camera, centre frame"
+            />
+          </Field>
+        </div>
+        <div className="mt-3">
+          <Field
+            label="Environmental movement"
+            hint="Movement in the environment itself — not the camera, not the subject."
+          >
+            <Input
+              name="environmentalMovement"
+              defaultValue={defaultValues?.environmentalMovement ?? ""}
+              placeholder="Light fog drifting through the station"
             />
           </Field>
         </div>

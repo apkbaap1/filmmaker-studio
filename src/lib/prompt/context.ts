@@ -1,4 +1,5 @@
 import type {
+  BlockingContext,
   CharacterInput,
   SceneInput,
   ShotInput,
@@ -13,7 +14,8 @@ import type {
 export function buildShotContext(
   shot: ShotInput,
   scene?: SceneInput,
-  characters: CharacterInput[] = []
+  characters: CharacterInput[] = [],
+  blocking?: BlockingContext
 ): ShotVisualizationContext {
-  return { shot, scene, characters };
+  return { shot, scene, characters, blocking };
 }

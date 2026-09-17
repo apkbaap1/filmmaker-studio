@@ -51,6 +51,9 @@ export const shotSchema = z.object({
   subjectEndPosition: z.string().max(200).optional().or(z.literal("")),
   characterBlocking: z.string().max(500).optional().or(z.literal("")),
 
+  // Movement in the environment itself, distinct from camera and subject movement
+  environmentalMovement: z.string().max(500).optional().or(z.literal("")),
+
   // Composition (spatial placement) and shot scale — separate axes
   composition: z.string().max(500).optional().or(z.literal("")),
   finalComposition: z.string().max(500).optional().or(z.literal("")),
@@ -180,6 +183,7 @@ export const temporalShotSchema = z.object({
   subjectMovement: z.string().max(500).optional().or(z.literal("")),
   subjectStartPosition: z.string().max(200).optional().or(z.literal("")),
   subjectEndPosition: z.string().max(200).optional().or(z.literal("")),
+  environmentalMovement: z.string().max(500).optional().or(z.literal("")),
   durationSeconds: z.coerce.number().min(0).max(3600).optional(),
 });
 
@@ -191,4 +195,13 @@ export const assetUploadSchema = z.object({
 export const generateImageSchema = z.object({
   prompt: z.string().min(3, "Describe what you want to generate").max(1000),
   caption: z.string().max(300).optional().or(z.literal("")),
+});
+
+/**
+ * The prompt actually submitted for a structured generation. Longer than
+ * generateImageSchema's free-text limit because a compiled cinematic prompt
+ * carries every field the filmmaker specified.
+ */
+export const generationPromptSchema = z.object({
+  prompt: z.string().min(3, "The prompt is empty — fill in some shot details first").max(6000),
 });

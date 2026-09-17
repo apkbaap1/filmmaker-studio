@@ -26,6 +26,7 @@ export interface TemporalValues {
   subjectMovement: string;
   subjectStartPosition: string;
   subjectEndPosition: string;
+  environmentalMovement: string;
   durationSeconds: string;
 }
 
@@ -211,7 +212,7 @@ export function ShotDesign({
 
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Subject</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Subject movement">
                 <Input
                   name="subjectMovement"
@@ -234,6 +235,14 @@ export function ShotDesign({
                   value={values.subjectEndPosition}
                   onChange={(e) => set("subjectEndPosition")(e.target.value)}
                   placeholder="Facing camera, centre frame"
+                />
+              </Field>
+              <Field label="Environmental movement">
+                <Input
+                  name="environmentalMovement"
+                  value={values.environmentalMovement}
+                  onChange={(e) => set("environmentalMovement")(e.target.value)}
+                  placeholder="Light fog drifting through the station"
                 />
               </Field>
               <Field label="Duration (seconds)">
