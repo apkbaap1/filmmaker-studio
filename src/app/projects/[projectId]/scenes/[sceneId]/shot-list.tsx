@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useId, useState } from "react";
+import Link from "next/link";
 import { Badge, Button, Card, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
 import { createShotAction, deleteShotAction, updateShotAction } from "@/lib/actions/shots";
 import type { FormState } from "@/lib/actions/shots";
@@ -92,10 +93,15 @@ type Shot = {
   movementSpeed: string | null;
 
   subjectMovement: string | null;
+  subjectStartPosition: string | null;
+  subjectEndPosition: string | null;
   characterBlocking: string | null;
 
   composition: string | null;
+  finalComposition: string | null;
   framing: string | null;
+  initialFraming: string | null;
+  finalFraming: string | null;
   depthOfField: string | null;
 
   lightingNotes: string | null;
@@ -237,21 +243,56 @@ function ShotFields({ defaultValues }: { defaultValues?: Partial<Shot> }) {
             />
           </Field>
         </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Subject start position">
+            <Input
+              name="subjectStartPosition"
+              defaultValue={defaultValues?.subjectStartPosition ?? ""}
+              placeholder="Mid-platform, back to camera"
+            />
+          </Field>
+          <Field label="Subject end position">
+            <Input
+              name="subjectEndPosition"
+              defaultValue={defaultValues?.subjectEndPosition ?? ""}
+              placeholder="Facing camera, centre frame"
+            />
+          </Field>
+        </div>
       </div>
 
       <div>
-        <SectionLabel>Composition</SectionLabel>
+        <SectionLabel>Composition &amp; framing</SectionLabel>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Composition">
-            <Input name="composition" defaultValue={defaultValues?.composition ?? ""} placeholder="Rule of thirds, centered…" />
+          <Field label="Composition (spatial placement)">
+            <Input name="composition" defaultValue={defaultValues?.composition ?? ""} placeholder="Subject on the left third" />
           </Field>
-          <Field label="Framing">
-            <Input name="framing" defaultValue={defaultValues?.framing ?? ""} placeholder="Tight, loose, headroom…" />
+          <Field label="Framing (shot scale)">
+            <Input name="framing" defaultValue={defaultValues?.framing ?? ""} placeholder="Tight, loose…" />
           </Field>
           <Field label="Depth of field">
             <Input name="depthOfField" defaultValue={defaultValues?.depthOfField ?? ""} placeholder="Shallow, deep…" />
           </Field>
         </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Initial framing (only if it changes)">
+            <Input name="initialFraming" defaultValue={defaultValues?.initialFraming ?? ""} placeholder="Wide" />
+          </Field>
+          <Field label="Final framing (only if it changes)">
+            <Input name="finalFraming" defaultValue={defaultValues?.finalFraming ?? ""} placeholder="Tight" />
+          </Field>
+          <Field label="Final composition (only if placement changes)">
+            <Input
+              name="finalComposition"
+              defaultValue={defaultValues?.finalComposition ?? ""}
+              placeholder="Leave empty to hold the composition"
+            />
+          </Field>
+        </div>
+        <p className="mt-1.5 text-xs text-muted">
+          Leave the final fields empty unless that axis actually changes — a camera move on its own
+          never implies a framing or composition change.
+        </p>
       </div>
 
       <div>
@@ -489,6 +530,11 @@ function ShotRow({
           )}
         </div>
         <div className="flex shrink-0 gap-2">
+          <Link href={`/projects/${projectId}/scenes/${sceneId}/shots/${shot.id}`}>
+            <Button variant="secondary" size="sm">
+              Design
+            </Button>
+          </Link>
           <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
             Edit
           </Button>

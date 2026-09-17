@@ -69,11 +69,26 @@ locations, equipment, and budget tracking.
   Higgsfield…) plug in as adapters without touching the data model. Run its
   tests with `npm test`.
 
+- **Shot design canvas** (`/projects/…/scenes/…/shots/…`) — an interactive
+  composition canvas per shot. A top-down stage shows the camera, its
+  field-of-view cone, subjects with facing, props by layer, movement paths and
+  the 180° axis (flagged in red if a camera move crosses it). A 16:9 frame view
+  shows subject placement with optional overlays: rule of thirds, centre lines,
+  eyeline, headroom, safe area and leading lines. Everything draggable also has
+  an exact numeric control, so precision never depends on a steady hand.
+  Alongside it, a temporal panel sets initial/final framing, initial/final
+  composition, camera movement and speed, camera and subject start/end
+  positions, subject movement and duration — and states plainly whether each
+  axis will hold or change. The canvas writes to the shot's own `blocking`
+  column, so there is no separate visualization store to drift out of sync, and
+  dragging never rewrites the shot's text fields: promoting a frame placement
+  into composition wording is an explicit button.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
   3. ✅ Prompt Compiler Engine (IR + renderers + provider adapters)
-  4. Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
+  4. ✅ Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
   5. AI image generation driven by the compiler
   6. AI video previsualization + video provider adapters
   7. Timeline/edit view (shot clips, transitions, running duration)

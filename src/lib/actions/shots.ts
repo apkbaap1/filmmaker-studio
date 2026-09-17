@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
-import { shotSchema, storyboardShotSchema } from "@/lib/validation";
+import { shotSchema, storyboardShotSchema, temporalShotSchema } from "@/lib/validation";
+import { blockingSchema } from "@/lib/blocking";
 
 export type FormState = { error?: string } | undefined;
 
@@ -23,10 +25,16 @@ function parseShotForm(formData: FormData) {
     cameraEndPosition: formData.get("cameraEndPosition") ?? "",
     movementSpeed: formData.get("movementSpeed") ?? "",
 
+    initialFraming: formData.get("initialFraming") ?? "",
+    finalFraming: formData.get("finalFraming") ?? "",
+
     subjectMovement: formData.get("subjectMovement") ?? "",
+    subjectStartPosition: formData.get("subjectStartPosition") ?? "",
+    subjectEndPosition: formData.get("subjectEndPosition") ?? "",
     characterBlocking: formData.get("characterBlocking") ?? "",
 
     composition: formData.get("composition") ?? "",
+    finalComposition: formData.get("finalComposition") ?? "",
     framing: formData.get("framing") ?? "",
     depthOfField: formData.get("depthOfField") ?? "",
 
@@ -164,7 +172,10 @@ export async function duplicateShotAction(projectId: string, sceneId: string, sh
   if (sourceIndex === -1) return;
   const source = shots[sourceIndex];
 
-  const { id, createdAt, updatedAt, ...copyableFields } = source;
+  // `blocking` is pulled out of the spread because Prisma's Json input type does
+  // not accept a plain `JsonValue | null` read back off a row; it is re-attached
+  // below only when the source actually has blocking to copy.
+  const { id, createdAt, updatedAt, blocking, ...copyableFields } = source;
   void id;
   void createdAt;
   void updatedAt;
@@ -179,6 +190,7 @@ export async function duplicateShotAction(projectId: string, sceneId: string, sh
     prisma.shotListItem.create({
       data: {
         ...copyableFields,
+        ...(blocking == null ? {} : { blocking: blocking as Prisma.InputJsonValue }),
         shotNumber: `${source.shotNumber} copy`,
         order: sourceIndex + 1,
       },
@@ -187,6 +199,79 @@ export async function duplicateShotAction(projectId: string, sceneId: string, sh
 
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   revalidatePath(`/projects/${projectId}/storyboard`);
+}
+
+/**
+ * Saves the composition canvas's spatial blocking. A partial update touching
+ * only the `blocking` column — the canvas must never write the Shot's textual
+ * fields as a side effect of dragging something.
+ */
+export async function updateShotBlockingAction(
+  projectId: string,
+  sceneId: string,
+  shotId: string,
+  blocking: unknown
+): Promise<{ error?: string } | undefined> {
+  await requireProjectAccess(projectId, { write: true });
+
+  const parsed = blockingSchema.safeParse(blocking);
+  if (!parsed.success) {
+    return { error: "Could not save the canvas layout" };
+  }
+
+  await prisma.shotListItem.updateMany({
+    where: { id: shotId, sceneId },
+    data: { blocking: parsed.data },
+  });
+
+  revalidatePath(`/projects/${projectId}/scenes/${sceneId}/shots/${shotId}`);
+  revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  return undefined;
+}
+
+/**
+ * Saves the temporal transition fields from the shot-design page. Partial, for
+ * the same reason as the storyboard's panel edit: it must not clobber fields it
+ * does not display.
+ */
+export async function updateShotTemporalAction(
+  projectId: string,
+  sceneId: string,
+  shotId: string,
+  _prevState: FormState,
+  formData: FormData
+): Promise<FormState> {
+  await requireProjectAccess(projectId, { write: true });
+
+  const parsed = temporalShotSchema.safeParse({
+    composition: formData.get("composition") ?? "",
+    finalComposition: formData.get("finalComposition") ?? "",
+    framing: formData.get("framing") ?? "",
+    initialFraming: formData.get("initialFraming") ?? "",
+    finalFraming: formData.get("finalFraming") ?? "",
+    cameraMovement: formData.get("cameraMovement") ?? "",
+    movementSpeed: formData.get("movementSpeed") ?? "",
+    cameraStartPosition: formData.get("cameraStartPosition") ?? "",
+    cameraEndPosition: formData.get("cameraEndPosition") ?? "",
+    subjectMovement: formData.get("subjectMovement") ?? "",
+    subjectStartPosition: formData.get("subjectStartPosition") ?? "",
+    subjectEndPosition: formData.get("subjectEndPosition") ?? "",
+    durationSeconds: formData.get("durationSeconds") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  await prisma.shotListItem.updateMany({
+    where: { id: shotId, sceneId },
+    data: nullifyEmptyStrings(parsed.data),
+  });
+
+  revalidatePath(`/projects/${projectId}/scenes/${sceneId}/shots/${shotId}`);
+  revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
+  revalidatePath(`/projects/${projectId}/storyboard`);
+  return undefined;
 }
 
 export async function reorderShotsAction(

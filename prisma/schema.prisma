@@ -189,6 +189,13 @@ model ShotListItem {
   equipmentNotes String?
   directorNotes  String?
 
+  // Spatial blocking for the composition canvas: camera placement and field of
+  // view, subject start/end positions and orientation, props, and frame
+  // composition. Stored here rather than in a parallel visualization table so
+  // the Shot stays the single source of truth. Shape is validated by
+  // blockingSchema (src/lib/blocking.ts) on every write.
+  blocking Json?
+
   order     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

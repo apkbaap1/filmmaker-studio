@@ -47,12 +47,19 @@ export const shotSchema = z.object({
 
   // Subject / blocking
   subjectMovement: z.string().max(500).optional().or(z.literal("")),
+  subjectStartPosition: z.string().max(200).optional().or(z.literal("")),
+  subjectEndPosition: z.string().max(200).optional().or(z.literal("")),
   characterBlocking: z.string().max(500).optional().or(z.literal("")),
 
-  // Composition
+  // Composition (spatial placement) and shot scale — separate axes
   composition: z.string().max(500).optional().or(z.literal("")),
+  finalComposition: z.string().max(500).optional().or(z.literal("")),
   framing: z.string().max(200).optional().or(z.literal("")),
   depthOfField: z.string().max(100).optional().or(z.literal("")),
+
+  // Temporal framing state — only set when the filmmaker states a transition
+  initialFraming: z.string().max(200).optional().or(z.literal("")),
+  finalFraming: z.string().max(200).optional().or(z.literal("")),
 
   // Lighting & mood
   lightingNotes: z.string().max(1000).optional().or(z.literal("")),
@@ -153,6 +160,27 @@ export const storyboardShotSchema = z.object({
   soundDesignNotes: z.string().max(1000).optional().or(z.literal("")),
   transition: z.string().max(100).optional().or(z.literal("")),
   directorNotes: z.string().max(2000).optional().or(z.literal("")),
+});
+
+/**
+ * The temporal/compositional field set edited from the shot-design page. Like
+ * storyboardShotSchema this drives a *partial* update, so fields absent here are
+ * left untouched on the shot rather than being cleared.
+ */
+export const temporalShotSchema = z.object({
+  composition: z.string().max(500).optional().or(z.literal("")),
+  finalComposition: z.string().max(500).optional().or(z.literal("")),
+  framing: z.string().max(200).optional().or(z.literal("")),
+  initialFraming: z.string().max(200).optional().or(z.literal("")),
+  finalFraming: z.string().max(200).optional().or(z.literal("")),
+  cameraMovement: z.string().max(100).optional().or(z.literal("")),
+  movementSpeed: z.string().max(100).optional().or(z.literal("")),
+  cameraStartPosition: z.string().max(200).optional().or(z.literal("")),
+  cameraEndPosition: z.string().max(200).optional().or(z.literal("")),
+  subjectMovement: z.string().max(500).optional().or(z.literal("")),
+  subjectStartPosition: z.string().max(200).optional().or(z.literal("")),
+  subjectEndPosition: z.string().max(200).optional().or(z.literal("")),
+  durationSeconds: z.coerce.number().min(0).max(3600).optional(),
 });
 
 export const assetUploadSchema = z.object({
