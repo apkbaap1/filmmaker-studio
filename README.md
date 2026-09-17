@@ -59,17 +59,27 @@ locations, equipment, and budget tracking.
   fields (camera height, focal length, composition, blocking, etc.) are never
   clobbered. Per-panel image upload/generation reuses the same asset gallery.
 
+- **Prompt Compiler Engine** (`src/lib/prompt/`) — compiles structured shot
+  data into cinematic prompts for image, video, image-to-video and storyboard
+  generation. Pure, deterministic, no database access and no LLM: values the
+  filmmaker selected (lens, angle, shot size, movement, duration…) are carried
+  through verbatim, and values they left blank never appear. Produces a
+  provider-independent `CinematicPromptSpec` first; string rendering and
+  provider formatting are separate layers, so new platforms (Seedance, Veo,
+  Higgsfield…) plug in as adapters without touching the data model. Run its
+  tests with `npm test`.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
-  3. Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
-  4. AI image generation driven by the full structured shot data
-  5. AI video previsualization + provider abstraction
-  6. Timeline/edit view (shot clips, transitions, running duration)
-  7. Camera blocking diagram (draggable top-down 2D)
-  8. Continuity tracking + warnings across shots
-  9. Prompt Studio (structured data → image/video/i2v prompts per provider)
-     + production export package
+  3. ✅ Prompt Compiler Engine (IR + renderers + provider adapters)
+  4. Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
+  5. AI image generation driven by the compiler
+  6. AI video previsualization + video provider adapters
+  7. Timeline/edit view (shot clips, transitions, running duration)
+  8. Camera blocking diagram (draggable top-down 2D)
+  9. Continuity tracking + warnings across shots
+  10. Prompt Studio UI (inspector, versions, per-provider tabs) + export package
 
 ## Getting started
 
