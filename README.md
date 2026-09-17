@@ -28,16 +28,37 @@ locations, equipment, and budget tracking.
 - **Equipment** — owned/rented/borrowed, quantity, daily cost, vendor.
 - **Budget** — categories with line items tracking estimated vs. actual
   spend.
-- **Visualization** — a dedicated space to previsualize the film:
-  - Project-wide mood board for concept art, tone references, diagrams.
-  - Per-scene **storyboard** gallery (upload frames or generate them with AI).
-  - Per-shot **camera angle**, **lighting notes**, and **sound design notes**,
-    plus a collapsible reference-image gallery on every shot.
+- **Visualization Studio** — a dedicated previsualization workspace,
+  following the workflow Story → Scene → Shot → Visualization → Storyboard:
+  - Every scene has a **Visualization Studio** header: computed slugline
+    (`INT. LOCATION — NIGHT`), assigned characters (from your cast roster),
+    synopsis, action, dialogue/script, emotional beat, and director's notes.
+  - A full **Shot Builder** per scene — camera (angle, height, lens, focal
+    length, movement, start/end position, speed), subject movement &
+    blocking, composition/framing/depth of field, lighting & mood, audio
+    (dialogue, SFX, sound design), duration, edit transition & edit point,
+    equipment and director's notes. Shot type, camera angle, camera
+    movement, and transition fields are curated dropdowns that still accept
+    free text, so you're never blocked by the preset list.
+  - Project-wide mood board plus per-scene **storyboard** gallery and
+    per-shot reference-image gallery — upload your own or generate with AI.
   - **AI image generation** (OpenAI `gpt-image-1`) for storyboard frames from
     a text prompt — optional, see "AI image generation" below.
   - Video generation isn't wired up yet (no provider chosen) — you can
     still upload your own video reference clips. Ask to have this added
     once you've picked a provider (Runway, Luma, etc.).
+
+  This is **Phase 1** of a larger previsualization roadmap:
+  1. ✅ Scene & Shot Builder (structured data model — this phase)
+  2. Storyboard view: chronological panel grid, drag-drop reorder
+  3. Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
+  4. AI image generation driven by the full structured shot data
+  5. AI video previsualization + provider abstraction
+  6. Timeline/edit view (shot clips, transitions, running duration)
+  7. Camera blocking diagram (draggable top-down 2D)
+  8. Continuity tracking + warnings across shots
+  9. Prompt Studio (structured data → image/video/i2v prompts per provider)
+     + production export package
 
 ## Getting started
 

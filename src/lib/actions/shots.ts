@@ -12,14 +12,49 @@ function parseShotForm(formData: FormData) {
     shotNumber: formData.get("shotNumber"),
     shotType: formData.get("shotType"),
     description: formData.get("description") ?? "",
-    cameraMovement: formData.get("cameraMovement") ?? "",
-    lens: formData.get("lens") ?? "",
-    equipmentNotes: formData.get("equipmentNotes") ?? "",
     status: formData.get("status") || "PLANNED",
+
     cameraAngle: formData.get("cameraAngle") ?? "",
+    cameraHeight: formData.get("cameraHeight") ?? "",
+    lens: formData.get("lens") ?? "",
+    focalLength: formData.get("focalLength") ?? "",
+    cameraMovement: formData.get("cameraMovement") ?? "",
+    cameraStartPosition: formData.get("cameraStartPosition") ?? "",
+    cameraEndPosition: formData.get("cameraEndPosition") ?? "",
+    movementSpeed: formData.get("movementSpeed") ?? "",
+
+    subjectMovement: formData.get("subjectMovement") ?? "",
+    characterBlocking: formData.get("characterBlocking") ?? "",
+
+    composition: formData.get("composition") ?? "",
+    framing: formData.get("framing") ?? "",
+    depthOfField: formData.get("depthOfField") ?? "",
+
     lightingNotes: formData.get("lightingNotes") ?? "",
+    mood: formData.get("mood") ?? "",
+
+    durationSeconds: formData.get("durationSeconds") || undefined,
+    dialogueAudio: formData.get("dialogueAudio") ?? "",
+    sfx: formData.get("sfx") ?? "",
     soundDesignNotes: formData.get("soundDesignNotes") ?? "",
+
+    transition: formData.get("transition") ?? "",
+    editPoint: formData.get("editPoint") ?? "",
+
+    equipmentNotes: formData.get("equipmentNotes") ?? "",
+    directorNotes: formData.get("directorNotes") ?? "",
   });
+}
+
+/** Optional string fields submit as "" from empty form inputs — store those as null. */
+function nullifyEmptyStrings<T extends Record<string, unknown>>(data: T): T {
+  const result = { ...data };
+  for (const key of Object.keys(result)) {
+    if (result[key] === "") {
+      (result as Record<string, unknown>)[key] = null;
+    }
+  }
+  return result;
 }
 
 export async function createShotAction(
@@ -35,7 +70,7 @@ export async function createShotAction(
   }
 
   await prisma.shotListItem.create({
-    data: { ...parsed.data, cameraAngle: parsed.data.cameraAngle || null, sceneId },
+    data: { ...nullifyEmptyStrings(parsed.data), sceneId },
   });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   return undefined;
@@ -56,7 +91,7 @@ export async function updateShotAction(
 
   await prisma.shotListItem.update({
     where: { id: shotId },
-    data: { ...parsed.data, cameraAngle: parsed.data.cameraAngle || null },
+    data: nullifyEmptyStrings(parsed.data),
   });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   return undefined;

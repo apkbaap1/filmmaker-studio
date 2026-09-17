@@ -1,123 +1,335 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useId, useState } from "react";
 import { Badge, Button, Card, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
 import { createShotAction, deleteShotAction, updateShotAction } from "@/lib/actions/shots";
 import type { FormState } from "@/lib/actions/shots";
 import { AssetGallery, type AssetItem } from "@/components/asset-gallery";
 
-type CameraAngle =
-  | "EYE_LEVEL"
-  | "LOW_ANGLE"
-  | "HIGH_ANGLE"
-  | "DUTCH_ANGLE"
-  | "BIRDS_EYE"
-  | "WORMS_EYE"
-  | "OVER_THE_SHOULDER"
-  | "POV";
+const SHOT_TYPES = [
+  "Extreme Wide Shot",
+  "Wide Shot",
+  "Full Shot",
+  "Medium Wide",
+  "Medium Shot",
+  "Medium Close-Up",
+  "Close-Up",
+  "Extreme Close-Up",
+  "Two Shot",
+  "Over-the-Shoulder",
+  "POV",
+  "Insert",
+  "Cutaway",
+  "Establishing Shot",
+];
 
-const CAMERA_ANGLE_LABEL: Record<CameraAngle, string> = {
-  EYE_LEVEL: "Eye level",
-  LOW_ANGLE: "Low angle",
-  HIGH_ANGLE: "High angle",
-  DUTCH_ANGLE: "Dutch angle",
-  BIRDS_EYE: "Bird's eye",
-  WORMS_EYE: "Worm's eye",
-  OVER_THE_SHOULDER: "Over-the-shoulder",
-  POV: "POV",
-};
+const CAMERA_ANGLES = [
+  "Eye Level",
+  "Low Angle",
+  "High Angle",
+  "Dutch Angle",
+  "Bird's Eye",
+  "Worm's Eye",
+  "Overhead",
+  "Profile",
+  "Three-quarter",
+  "Front",
+  "Rear",
+];
+
+const CAMERA_MOVEMENTS = [
+  "Static",
+  "Pan",
+  "Tilt",
+  "Dolly In",
+  "Dolly Out",
+  "Tracking",
+  "Truck Left",
+  "Truck Right",
+  "Crane Up",
+  "Crane Down",
+  "Pedestal",
+  "Orbit",
+  "Arc",
+  "Push In",
+  "Pull Out",
+  "Handheld",
+  "Steadicam",
+  "Gimbal",
+  "Drone",
+  "Whip Pan",
+  "Rack Focus",
+];
+
+const TRANSITIONS = [
+  "Cut",
+  "Dissolve",
+  "Fade In",
+  "Fade Out",
+  "Match Cut",
+  "Smash Cut",
+  "J Cut",
+  "L Cut",
+  "Cross Cut",
+];
+
+const STATUS_TONE = { PLANNED: "default", SHOT: "green", CUT: "red" } as const;
 
 type Shot = {
   id: string;
   shotNumber: string;
   shotType: string;
   description: string | null;
-  cameraMovement: string | null;
-  lens: string | null;
-  equipmentNotes: string | null;
   status: "PLANNED" | "SHOT" | "CUT";
-  cameraAngle: CameraAngle | null;
+
+  cameraAngle: string | null;
+  cameraHeight: string | null;
+  lens: string | null;
+  focalLength: string | null;
+  cameraMovement: string | null;
+  cameraStartPosition: string | null;
+  cameraEndPosition: string | null;
+  movementSpeed: string | null;
+
+  subjectMovement: string | null;
+  characterBlocking: string | null;
+
+  composition: string | null;
+  framing: string | null;
+  depthOfField: string | null;
+
   lightingNotes: string | null;
+  mood: string | null;
+
+  durationSeconds: number | null;
+  dialogueAudio: string | null;
+  sfx: string | null;
   soundDesignNotes: string | null;
+
+  transition: string | null;
+  editPoint: string | null;
+
+  equipmentNotes: string | null;
+  directorNotes: string | null;
+
   assets: AssetItem[];
 };
 
-const STATUS_TONE = { PLANNED: "default", SHOT: "green", CUT: "red" } as const;
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{children}</p>
+  );
+}
+
+/** A text input with a curated dropdown of suggestions the filmmaker can still override with free text. */
+function SuggestInput({
+  name,
+  options,
+  defaultValue,
+  placeholder,
+}: {
+  name: string;
+  options: string[];
+  defaultValue?: string;
+  placeholder?: string;
+}) {
+  const listId = useId();
+  return (
+    <>
+      <Input name={name} list={listId} defaultValue={defaultValue ?? ""} placeholder={placeholder} />
+      <datalist id={listId}>
+        {options.map((o) => (
+          <option key={o} value={o} />
+        ))}
+      </datalist>
+    </>
+  );
+}
 
 function ShotFields({ defaultValues }: { defaultValues?: Partial<Shot> }) {
   return (
-    <>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label="Shot #">
-          <Input name="shotNumber" required defaultValue={defaultValues?.shotNumber} placeholder="1A" />
-        </Field>
-        <Field label="Shot type">
-          <Input
-            name="shotType"
-            required
-            defaultValue={defaultValues?.shotType}
-            placeholder="Wide, Close-up, OTS…"
-          />
-        </Field>
-        <Field label="Camera movement">
-          <Input name="cameraMovement" defaultValue={defaultValues?.cameraMovement ?? ""} placeholder="Static, Dolly…" />
-        </Field>
-        <Field label="Lens">
-          <Input name="lens" defaultValue={defaultValues?.lens ?? ""} placeholder="35mm" />
-        </Field>
+    <div className="space-y-5">
+      <div>
+        <SectionLabel>Shot</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label="Shot #">
+            <Input name="shotNumber" required defaultValue={defaultValues?.shotNumber} placeholder="1A" />
+          </Field>
+          <Field label="Shot type">
+            <SuggestInput name="shotType" options={SHOT_TYPES} defaultValue={defaultValues?.shotType} placeholder="Wide Shot" />
+          </Field>
+          <Field label="Duration (seconds)">
+            <Input
+              name="durationSeconds"
+              type="number"
+              min="0"
+              step="0.1"
+              defaultValue={defaultValues?.durationSeconds ?? ""}
+              placeholder="6"
+            />
+          </Field>
+          <Field label="Status">
+            <Select name="status" defaultValue={defaultValues?.status ?? "PLANNED"}>
+              <option value="PLANNED">Planned</option>
+              <option value="SHOT">Shot</option>
+              <option value="CUT">Cut</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="mt-3">
+          <Field label="Description">
+            <Input
+              name="description"
+              defaultValue={defaultValues?.description ?? ""}
+              placeholder="What the shot shows"
+            />
+          </Field>
+        </div>
       </div>
-      <Field label="Description">
-        <Input
-          name="description"
-          defaultValue={defaultValues?.description ?? ""}
-          placeholder="What the shot shows"
-        />
-      </Field>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Field label="Camera angle">
-          <Select name="cameraAngle" defaultValue={defaultValues?.cameraAngle ?? ""}>
-            <option value="">Not set</option>
-            {Object.entries(CAMERA_ANGLE_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Equipment notes">
-          <Input
-            name="equipmentNotes"
-            defaultValue={defaultValues?.equipmentNotes ?? ""}
-            placeholder="Gimbal, slider, drone…"
-          />
-        </Field>
-        <Field label="Status">
-          <Select name="status" defaultValue={defaultValues?.status ?? "PLANNED"}>
-            <option value="PLANNED">Planned</option>
-            <option value="SHOT">Shot</option>
-            <option value="CUT">Cut</option>
-          </Select>
-        </Field>
+
+      <div>
+        <SectionLabel>Camera</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label="Camera angle">
+            <SuggestInput name="cameraAngle" options={CAMERA_ANGLES} defaultValue={defaultValues?.cameraAngle ?? ""} placeholder="Eye Level" />
+          </Field>
+          <Field label="Camera height">
+            <Input name="cameraHeight" defaultValue={defaultValues?.cameraHeight ?? ""} placeholder="Chest level" />
+          </Field>
+          <Field label="Lens">
+            <Input name="lens" defaultValue={defaultValues?.lens ?? ""} placeholder="Prime, zoom…" />
+          </Field>
+          <Field label="Focal length">
+            <Input name="focalLength" defaultValue={defaultValues?.focalLength ?? ""} placeholder="35mm" />
+          </Field>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label="Camera movement">
+            <SuggestInput name="cameraMovement" options={CAMERA_MOVEMENTS} defaultValue={defaultValues?.cameraMovement ?? ""} placeholder="Static" />
+          </Field>
+          <Field label="Movement speed">
+            <Input name="movementSpeed" defaultValue={defaultValues?.movementSpeed ?? ""} placeholder="Slow, fast…" />
+          </Field>
+          <Field label="Start position">
+            <Input name="cameraStartPosition" defaultValue={defaultValues?.cameraStartPosition ?? ""} placeholder="Wide, by the door" />
+          </Field>
+          <Field label="End position">
+            <Input name="cameraEndPosition" defaultValue={defaultValues?.cameraEndPosition ?? ""} placeholder="Tight on face" />
+          </Field>
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Lighting notes">
-          <Textarea
-            name="lightingNotes"
-            rows={2}
-            defaultValue={defaultValues?.lightingNotes ?? ""}
-            placeholder="Key/fill/back setup, practicals, gels, time of day light…"
-          />
-        </Field>
-        <Field label="Sound design notes">
-          <Textarea
-            name="soundDesignNotes"
-            rows={2}
-            defaultValue={defaultValues?.soundDesignNotes ?? ""}
-            placeholder="Ambience, foley, music cues, dialogue capture notes…"
-          />
-        </Field>
+
+      <div>
+        <SectionLabel>Subject &amp; blocking</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Subject movement">
+            <Input
+              name="subjectMovement"
+              defaultValue={defaultValues?.subjectMovement ?? ""}
+              placeholder="Walks toward camera and stops"
+            />
+          </Field>
+          <Field label="Character blocking">
+            <Input
+              name="characterBlocking"
+              defaultValue={defaultValues?.characterBlocking ?? ""}
+              placeholder="Character positions relative to frame/each other"
+            />
+          </Field>
+        </div>
       </div>
-    </>
+
+      <div>
+        <SectionLabel>Composition</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Composition">
+            <Input name="composition" defaultValue={defaultValues?.composition ?? ""} placeholder="Rule of thirds, centered…" />
+          </Field>
+          <Field label="Framing">
+            <Input name="framing" defaultValue={defaultValues?.framing ?? ""} placeholder="Tight, loose, headroom…" />
+          </Field>
+          <Field label="Depth of field">
+            <Input name="depthOfField" defaultValue={defaultValues?.depthOfField ?? ""} placeholder="Shallow, deep…" />
+          </Field>
+        </div>
+      </div>
+
+      <div>
+        <SectionLabel>Lighting &amp; mood</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Lighting notes">
+            <Textarea
+              name="lightingNotes"
+              rows={2}
+              defaultValue={defaultValues?.lightingNotes ?? ""}
+              placeholder="Key/fill/back setup, practicals, gels, time of day light…"
+            />
+          </Field>
+          <Field label="Mood">
+            <Input name="mood" defaultValue={defaultValues?.mood ?? ""} placeholder="Suspenseful, tender, chaotic…" />
+          </Field>
+        </div>
+      </div>
+
+      <div>
+        <SectionLabel>Audio</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Dialogue / audio">
+            <Textarea
+              name="dialogueAudio"
+              rows={2}
+              defaultValue={defaultValues?.dialogueAudio ?? ""}
+              placeholder="Lines spoken or audio present in this shot"
+            />
+          </Field>
+          <Field label="SFX">
+            <Input name="sfx" defaultValue={defaultValues?.sfx ?? ""} placeholder="Footsteps, door creak…" />
+          </Field>
+        </div>
+        <div className="mt-3">
+          <Field label="Sound design notes">
+            <Textarea
+              name="soundDesignNotes"
+              rows={2}
+              defaultValue={defaultValues?.soundDesignNotes ?? ""}
+              placeholder="Ambience, foley, music cues, dialogue capture notes…"
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div>
+        <SectionLabel>Edit</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Transition">
+            <SuggestInput name="transition" options={TRANSITIONS} defaultValue={defaultValues?.transition ?? ""} placeholder="Cut" />
+          </Field>
+          <Field label="Edit point">
+            <Input name="editPoint" defaultValue={defaultValues?.editPoint ?? ""} placeholder="On action, on line, on look…" />
+          </Field>
+        </div>
+      </div>
+
+      <div>
+        <SectionLabel>Notes</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Equipment notes">
+            <Input
+              name="equipmentNotes"
+              defaultValue={defaultValues?.equipmentNotes ?? ""}
+              placeholder="Gimbal, slider, drone…"
+            />
+          </Field>
+          <Field label="Director's notes">
+            <Input
+              name="directorNotes"
+              defaultValue={defaultValues?.directorNotes ?? ""}
+              placeholder="Anything else for this shot"
+            />
+          </Field>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -201,35 +413,79 @@ function ShotRow({
     );
   }
 
+  const cameraLine = [
+    shot.cameraAngle,
+    shot.cameraHeight,
+    shot.focalLength ? `${shot.focalLength} lens` : shot.lens,
+    shot.cameraMovement,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Shot {shot.shotNumber}</span>
             <Badge tone="accent">{shot.shotType}</Badge>
             <Badge tone={STATUS_TONE[shot.status]}>{shot.status}</Badge>
-            {shot.cameraAngle && <Badge>{CAMERA_ANGLE_LABEL[shot.cameraAngle]}</Badge>}
+            {shot.durationSeconds != null && <Badge>{shot.durationSeconds}s</Badge>}
           </div>
           {shot.description && <p className="mt-1.5 text-sm text-muted">{shot.description}</p>}
-          <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-muted">
-            {shot.cameraMovement && <span>Movement: {shot.cameraMovement}</span>}
-            {shot.lens && <span>Lens: {shot.lens}</span>}
-            {shot.equipmentNotes && <span>Equipment: {shot.equipmentNotes}</span>}
-          </div>
-          {(shot.lightingNotes || shot.soundDesignNotes) && (
+          {cameraLine && <p className="mt-1.5 text-xs text-muted">{cameraLine}</p>}
+          {(shot.subjectMovement || shot.characterBlocking) && (
+            <p className="mt-1 text-xs text-muted">
+              {[shot.subjectMovement, shot.characterBlocking].filter(Boolean).join(" · ")}
+            </p>
+          )}
+          {(shot.composition || shot.framing || shot.depthOfField) && (
+            <p className="mt-1 text-xs text-muted">
+              {[shot.composition, shot.framing, shot.depthOfField].filter(Boolean).join(" · ")}
+            </p>
+          )}
+          {(shot.lightingNotes || shot.mood) && (
             <div className="mt-2 space-y-1 text-xs text-muted">
+              {shot.mood && (
+                <p>
+                  <span className="font-medium text-foreground">Mood:</span> {shot.mood}
+                </p>
+              )}
               {shot.lightingNotes && (
                 <p>
                   <span className="font-medium text-foreground">Lighting:</span> {shot.lightingNotes}
                 </p>
               )}
+            </div>
+          )}
+          {(shot.dialogueAudio || shot.sfx || shot.soundDesignNotes) && (
+            <div className="mt-2 space-y-1 text-xs text-muted">
+              {shot.dialogueAudio && (
+                <p>
+                  <span className="font-medium text-foreground">Dialogue/audio:</span> {shot.dialogueAudio}
+                </p>
+              )}
+              {shot.sfx && (
+                <p>
+                  <span className="font-medium text-foreground">SFX:</span> {shot.sfx}
+                </p>
+              )}
               {shot.soundDesignNotes && (
                 <p>
-                  <span className="font-medium text-foreground">Sound:</span> {shot.soundDesignNotes}
+                  <span className="font-medium text-foreground">Sound design:</span> {shot.soundDesignNotes}
                 </p>
               )}
             </div>
+          )}
+          {(shot.transition || shot.editPoint) && (
+            <p className="mt-1 text-xs text-muted">
+              {[shot.transition && `Transition: ${shot.transition}`, shot.editPoint && `Edit point: ${shot.editPoint}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
+          {shot.directorNotes && (
+            <p className="mt-1 text-xs italic text-muted">&ldquo;{shot.directorNotes}&rdquo;</p>
           )}
         </div>
         <div className="flex shrink-0 gap-2">

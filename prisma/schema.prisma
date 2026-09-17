@@ -56,17 +56,6 @@ enum AssetSource {
   GENERATED
 }
 
-enum CameraAngle {
-  EYE_LEVEL
-  LOW_ANGLE
-  HIGH_ANGLE
-  DUTCH_ANGLE
-  BIRDS_EYE
-  WORMS_EYE
-  OVER_THE_SHOULDER
-  POV
-}
-
 model User {
   id           String   @id @default(cuid())
   name         String
@@ -118,43 +107,79 @@ model ProjectMember {
 }
 
 model Scene {
-  id         String    @id @default(cuid())
-  projectId  String
-  number     String
-  intExt     IntExt    @default(INT)
-  location   String
-  timeOfDay  TimeOfDay @default(DAY)
-  synopsis   String?
-  scriptText String?
-  pageEights Float     @default(1)
-  order      Int       @default(0)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  projectId     String
+  number        String
+  intExt        IntExt    @default(INT)
+  location      String
+  timeOfDay     TimeOfDay @default(DAY)
+  synopsis      String?
+  scriptText    String?
+  action        String?
+  emotionalBeat String?
+  directorNotes String?
+  pageEights    Float     @default(1)
+  order         Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   shots         ShotListItem[]
   scheduleItems ScheduleItem[]
   assets        Asset[]
+  characters    CastMember[]
 
   @@index([projectId])
 }
 
 model ShotListItem {
-  id               String       @id @default(cuid())
-  sceneId          String
-  shotNumber       String
-  shotType         String
-  description      String?
-  cameraMovement   String?
-  lens             String?
-  equipmentNotes   String?
-  status           ShotStatus   @default(PLANNED)
-  cameraAngle      CameraAngle?
-  lightingNotes    String?
+  id          String     @id @default(cuid())
+  sceneId     String
+  shotNumber  String
+  shotType    String
+  description String?
+  status      ShotStatus @default(PLANNED)
+
+  // Camera
+  cameraAngle         String?
+  cameraHeight        String?
+  lens                String?
+  focalLength         String?
+  cameraMovement      String?
+  cameraStartPosition String?
+  cameraEndPosition   String?
+  movementSpeed       String?
+
+  // Subject / blocking
+  subjectMovement   String?
+  characterBlocking String?
+
+  // Composition
+  composition  String?
+  framing      String?
+  depthOfField String?
+
+  // Lighting & mood
+  lightingNotes String?
+  mood          String?
+
+  // Audio & timing
+  durationSeconds  Float?
+  dialogueAudio    String?
+  sfx              String?
   soundDesignNotes String?
-  order            Int          @default(0)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+
+  // Edit
+  transition String?
+  editPoint  String?
+
+  // Notes
+  equipmentNotes String?
+  directorNotes  String?
+
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   scene  Scene   @relation(fields: [sceneId], references: [id], onDelete: Cascade)
   assets Asset[]
@@ -232,6 +257,7 @@ model CastMember {
   updatedAt     DateTime      @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scenes  Scene[]
 
   @@index([projectId])
 }

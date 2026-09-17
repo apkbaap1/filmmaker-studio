@@ -16,7 +16,11 @@ function parseSceneForm(formData: FormData) {
     timeOfDay: formData.get("timeOfDay"),
     synopsis: formData.get("synopsis") ?? "",
     scriptText: formData.get("scriptText") ?? "",
+    action: formData.get("action") ?? "",
+    emotionalBeat: formData.get("emotionalBeat") ?? "",
+    directorNotes: formData.get("directorNotes") ?? "",
     pageEights: formData.get("pageEights") || "1",
+    characterIds: formData.getAll("characterIds"),
   });
 }
 
@@ -31,9 +35,16 @@ export async function createSceneAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.scene.create({ data: { ...parsed.data, projectId } });
+  const { characterIds, ...data } = parsed.data;
+  const scene = await prisma.scene.create({
+    data: {
+      ...data,
+      projectId,
+      characters: { connect: characterIds.map((id) => ({ id })) },
+    },
+  });
   revalidatePath(`/projects/${projectId}/scenes`);
-  redirect(`/projects/${projectId}/scenes`);
+  redirect(`/projects/${projectId}/scenes/${scene.id}`);
 }
 
 export async function updateSceneAction(
@@ -48,7 +59,14 @@ export async function updateSceneAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.scene.update({ where: { id: sceneId }, data: parsed.data });
+  const { characterIds, ...data } = parsed.data;
+  await prisma.scene.update({
+    where: { id: sceneId },
+    data: {
+      ...data,
+      characters: { set: characterIds.map((id) => ({ id })) },
+    },
+  });
   revalidatePath(`/projects/${projectId}/scenes`);
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   return undefined;

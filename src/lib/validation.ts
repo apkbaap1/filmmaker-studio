@@ -22,23 +22,55 @@ export const sceneSchema = z.object({
   timeOfDay: z.enum(["DAY", "NIGHT", "DAWN", "DUSK"]),
   synopsis: z.string().max(2000).optional().or(z.literal("")),
   scriptText: z.string().max(20000).optional().or(z.literal("")),
+  action: z.string().max(4000).optional().or(z.literal("")),
+  emotionalBeat: z.string().max(500).optional().or(z.literal("")),
+  directorNotes: z.string().max(2000).optional().or(z.literal("")),
   pageEights: z.coerce.number().min(0).max(500),
+  characterIds: z.array(z.string()).optional().default([]),
 });
 
 export const shotSchema = z.object({
   shotNumber: z.string().min(1).max(20),
   shotType: z.string().min(1).max(100),
   description: z.string().max(2000).optional().or(z.literal("")),
-  cameraMovement: z.string().max(100).optional().or(z.literal("")),
-  lens: z.string().max(100).optional().or(z.literal("")),
-  equipmentNotes: z.string().max(500).optional().or(z.literal("")),
   status: z.enum(["PLANNED", "SHOT", "CUT"]),
-  cameraAngle: z
-    .enum(["EYE_LEVEL", "LOW_ANGLE", "HIGH_ANGLE", "DUTCH_ANGLE", "BIRDS_EYE", "WORMS_EYE", "OVER_THE_SHOULDER", "POV"])
-    .optional()
-    .or(z.literal("")),
+
+  // Camera
+  cameraAngle: z.string().max(100).optional().or(z.literal("")),
+  cameraHeight: z.string().max(100).optional().or(z.literal("")),
+  lens: z.string().max(100).optional().or(z.literal("")),
+  focalLength: z.string().max(50).optional().or(z.literal("")),
+  cameraMovement: z.string().max(100).optional().or(z.literal("")),
+  cameraStartPosition: z.string().max(200).optional().or(z.literal("")),
+  cameraEndPosition: z.string().max(200).optional().or(z.literal("")),
+  movementSpeed: z.string().max(100).optional().or(z.literal("")),
+
+  // Subject / blocking
+  subjectMovement: z.string().max(500).optional().or(z.literal("")),
+  characterBlocking: z.string().max(500).optional().or(z.literal("")),
+
+  // Composition
+  composition: z.string().max(500).optional().or(z.literal("")),
+  framing: z.string().max(200).optional().or(z.literal("")),
+  depthOfField: z.string().max(100).optional().or(z.literal("")),
+
+  // Lighting & mood
   lightingNotes: z.string().max(1000).optional().or(z.literal("")),
+  mood: z.string().max(200).optional().or(z.literal("")),
+
+  // Audio & timing
+  durationSeconds: z.coerce.number().min(0).max(3600).optional(),
+  dialogueAudio: z.string().max(1000).optional().or(z.literal("")),
+  sfx: z.string().max(500).optional().or(z.literal("")),
   soundDesignNotes: z.string().max(1000).optional().or(z.literal("")),
+
+  // Edit
+  transition: z.string().max(100).optional().or(z.literal("")),
+  editPoint: z.string().max(200).optional().or(z.literal("")),
+
+  // Notes
+  equipmentNotes: z.string().max(500).optional().or(z.literal("")),
+  directorNotes: z.string().max(2000).optional().or(z.literal("")),
 });
 
 export const scheduleDaySchema = z.object({
