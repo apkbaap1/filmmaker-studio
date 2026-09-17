@@ -65,6 +65,8 @@ enum GenerationStatus {
 
 enum GenerationMode {
   IMAGE
+  VIDEO
+  IMAGE_TO_VIDEO
 }
 
 /**
@@ -188,6 +190,10 @@ model ShotListItem {
   // from camera and subject movement.
   environmentalMovement String?
 
+  // Costume/wardrobe. A continuity property: stated here so an image-to-video
+  // prompt can name it as something that must not change between frames.
+  wardrobe String?
+
   // Composition. `composition` is spatial placement (subject on the left third)
   // and `framing` is shot scale (tight/loose) — two different things. Both are
   // treated as stable for the duration of the shot unless a temporal transition
@@ -268,10 +274,28 @@ model Generation {
   providerId       String
   promptProviderId String?
 
+  /**
+   * The provider's own job handle for an asynchronous generation (video).
+   * Null for providers that return their result inline (image).
+   */
+  providerJobId String?
+
+  /**
+   * Requested clip length, for the modes that have one.
+   */
+  durationSeconds Float?
+
   error String?
 
   assetId String? @unique
-  asset   Asset?  @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  asset   Asset?  @relation("GenerationOutput", fields: [assetId], references: [id], onDelete: SetNull)
+
+  /**
+   * The still this clip was animated from, for IMAGE_TO_VIDEO. Kept as a
+   * relation rather than a copied file so the lineage still/clip stays visible.
+   */
+  sourceAssetId String?
+  sourceAsset   Asset?  @relation("GenerationSource", fields: [sourceAssetId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -301,7 +325,11 @@ model Asset {
   project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scene      Scene?        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
   shot       ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
-  generation Generation?
+  generation Generation?   @relation("GenerationOutput")
+  /**
+   * Generations that animated this asset as their source frame.
+   */
+  animatedBy Generation[]  @relation("GenerationSource")
 
   @@index([projectId])
   @@index([sceneId])

@@ -2,8 +2,15 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { deriveBlockingContext } from "@/lib/blocking";
-import { buildShotContext, generateImagePrompt, DEFAULT_PROVIDER_ID } from "@/lib/prompt";
-import type { CompiledPrompt } from "@/lib/prompt";
+import {
+  buildShotContext,
+  generateImagePrompt,
+  generateImageToVideoPrompt,
+  generateStoryboardPrompt,
+  generateVideoPrompt,
+  DEFAULT_PROVIDER_ID,
+} from "@/lib/prompt";
+import type { CompiledPrompt, PromptMode } from "@/lib/prompt";
 
 /**
  * The bridge between the database and the pure prompt compiler.
@@ -19,10 +26,24 @@ export interface ResolvedShotPrompt {
   projectId: string;
 }
 
-export async function compileShotImagePrompt(
+const RENDERERS = {
+  image: generateImagePrompt,
+  video: generateVideoPrompt,
+  "image-to-video": generateImageToVideoPrompt,
+  storyboard: generateStoryboardPrompt,
+} as const;
+
+/**
+ * Compiles one shot into one mode's prompt. Every mode goes through the same
+ * compileSpec — the video and image-to-video prompts are different projections
+ * of the same CinematicPromptSpec, never an image prompt with motion words
+ * appended.
+ */
+export async function compileShotPrompt(
   projectId: string,
   sceneId: string,
   shotId: string,
+  mode: PromptMode,
   promptProviderId: string = DEFAULT_PROVIDER_ID
 ): Promise<ResolvedShotPrompt | undefined> {
   const shot = await prisma.shotListItem.findFirst({
@@ -36,7 +57,7 @@ export async function compileShotImagePrompt(
   return {
     projectId,
     sceneId,
-    compiled: generateImagePrompt(
+    compiled: RENDERERS[mode](
       buildShotContext(
         shot,
         shot.scene,
@@ -46,4 +67,14 @@ export async function compileShotImagePrompt(
       { providerId: promptProviderId }
     ),
   };
+}
+
+/** Phase 5 entry point, kept so the image path reads the same as before. */
+export async function compileShotImagePrompt(
+  projectId: string,
+  sceneId: string,
+  shotId: string,
+  promptProviderId: string = DEFAULT_PROVIDER_ID
+): Promise<ResolvedShotPrompt | undefined> {
+  return compileShotPrompt(projectId, sceneId, shotId, "image", promptProviderId);
 }

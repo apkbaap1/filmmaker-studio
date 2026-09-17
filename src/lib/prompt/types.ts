@@ -73,6 +73,8 @@ export interface CinematicPromptSpec {
      * blocking canvas by pure geometry — never from prose, and never guessed.
      */
     facing: Maybe<string>;
+    /** Costume/wardrobe, from `shot.wardrobe`. A continuity property, not a motion one. */
+    wardrobe: Maybe<string>;
     emotionalBeat: Maybe<string>;
   };
 
@@ -191,6 +193,7 @@ export interface ShotInput {
   characterBlocking?: string | null;
 
   environmentalMovement?: string | null;
+  wardrobe?: string | null;
 
   composition?: string | null;
   finalComposition?: string | null;

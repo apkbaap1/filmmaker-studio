@@ -102,6 +102,7 @@ export function compileSpec(
       action: specified(scene?.action, "scene.action"),
       blocking: specified(shot.characterBlocking, "shot.characterBlocking"),
       facing: specified(blocking?.subjectFacing, "shot.blocking.subjects"),
+      wardrobe: specified(shot.wardrobe, "shot.wardrobe"),
       emotionalBeat: specified(scene?.emotionalBeat, "scene.emotionalBeat"),
     },
 
@@ -195,7 +196,9 @@ function deriveContinuity(spec: CinematicPromptSpec): { preserve: string[]; anim
   const compositionChanges = Boolean(spec.motion.finalComposition);
 
   if (spec.subject.characters.length > 0) preserve.push("Character identity and appearance");
+  if (spec.subject.wardrobe) preserve.push("Costume and wardrobe");
   if (spec.environment.location) preserve.push("Location");
+  if (spec.environment.props) preserve.push("Props and set dressing");
   if (spec.lighting.setup) preserve.push("Lighting setup");
 
   // Spatial placement is independent of shot scale. It survives a framing change

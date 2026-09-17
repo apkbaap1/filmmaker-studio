@@ -99,13 +99,32 @@ locations, equipment, and budget tracking.
   modules — a test walks the real import graph to prove no client component can
   reach them.
 
+- **AI video previsualization** — same shot, two more modes on the same
+  compiler. **Generate Video** renders the shot's *temporal* half — opening and
+  closing framing, camera and subject start/end positions, movement and its
+  speed, environmental movement, duration — as an explicit
+  `START → MOTION → END → HOLD → DURATION` progression, with axes you stated as
+  stable listed under HOLD rather than animated. **Generate Image → Video**
+  animates one of the shot's existing frames under a literal PRESERVE / ANIMATE
+  contract. Neither is "the image prompt plus motion words": both are
+  projections of the same `CinematicPromptSpec`, and a still still drops the
+  time axis entirely. Video jobs are asynchronous (submit → poll), so the rest
+  of the app keeps working while one runs, and a reload resumes polling instead
+  of orphaning the job.
+
+  **No video provider is integrated yet** — none has been chosen for this
+  project. The `VideoGenerationProvider` adapter interface and registry are in
+  place, and a clearly-labelled local stub (`VIDEO_PROVIDER=local-stub`)
+  exercises the pipeline end to end for development and tests. Nothing in the
+  codebase drives Seedance, Veo, Higgsfield or Runway, and nothing claims to.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
   3. ✅ Prompt Compiler Engine (IR + renderers + provider adapters)
   4. ✅ Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
   5. ✅ AI image generation driven by the compiler
-  6. AI video previsualization + video provider adapters
+  6. ✅ AI video previsualization + video provider adapters
   7. Timeline/edit view (shot clips, transitions, running duration)
   8. Camera blocking diagram (draggable top-down 2D)
   9. Continuity tracking + warnings across shots
@@ -174,9 +193,28 @@ stub), set `OPENAI_BASE_URL` as well — it defaults to
 `https://api.openai.com/v1`.
 
 Uploaded and generated files are saved to `./storage/uploads` on disk by
-default (configurable via `STORAGE_DIR`). This works great for self-hosting
-but **not** on Vercel, which has no persistent filesystem — see
-"Deployment" below if you're targeting Vercel.
+default (configurable via `STORAGE_DIR`). See
+**"Storage: development-stage"** below before deploying anything.
+
+### 3b. (Optional) enable AI video previsualization
+
+No video provider is wired up — you haven't picked one yet. To exercise the
+video and image-to-video pipeline locally with a clearly-labelled placeholder
+clip:
+
+```
+VIDEO_PROVIDER="local-stub"
+# VIDEO_STUB_DELAY_MS="1500"   # how long a stub job stays "processing"
+```
+
+The stub returns the same short clip stamped *"STUB CLIP — no provider"* for
+every prompt and ignores the requested duration. It proves the pipeline, never
+the generation. With `VIDEO_PROVIDER` unset the video buttons are disabled and
+say so.
+
+When you choose a real provider, write an adapter against
+`VideoGenerationProvider` in `src/lib/ai/video-providers/` and register it —
+the compiler, the `CinematicPromptSpec` and the Shot model do not change.
 
 ### 4. Run the app
 
@@ -198,14 +236,40 @@ src/lib/validation.ts          Zod schemas shared by every form
 src/lib/storage.ts             Local-disk file storage for uploaded/generated assets
 src/lib/ai/openai-image.ts     OpenAI image HTTP call (server-only; reads the key)
 src/lib/ai/image-providers/    Image provider registry + adapters (text → pixels)
+src/lib/ai/video-providers/    Video provider registry + adapters (text → async job)
 src/lib/prompt/                Prompt compiler: IR, renderers, prompt adapters
 src/lib/shot-prompt.ts         DB ↔ compiler bridge (the only place a Shot becomes a prompt)
-src/lib/actions/generations.ts Structured generation: queue, run, persist
+src/lib/actions/generations.ts Structured image generation: queue, run, persist
+src/lib/actions/video-generations.ts  Video/image-to-video jobs: start, submit, poll
 src/app/api/assets/[id]/file/  Authenticated file-serving route
 src/app/projects/[projectId]/  Project workspace: scenes, visualization,
                                 schedule, cast-crew, locations, equipment,
                                 budget
 ```
+
+## Storage: development-stage
+
+> **This is not production infrastructure yet, and must not be deployed as-is.**
+
+`src/lib/storage.ts` writes uploaded and generated files to the local
+filesystem. That is fine for `npm run dev` and for a single self-hosted box
+with a persistent disk. It is **not** a production design:
+
+- it does not survive a serverless deploy (Vercel and friends have no
+  persistent filesystem, so uploads vanish between requests);
+- it does not survive a container being replaced or rescheduled;
+- it cannot be shared by more than one app instance, so it blocks horizontal
+  scaling;
+- it has no redundancy, no lifecycle policy and no CDN in front of it.
+
+Generated **video** makes this sharper than it was for stills: clips are large,
+and losing them loses work that cost real provider credits.
+
+**Before any production deployment**, replace it with an S3-compatible object
+store (S3, R2, GCS, B2…) using signed URLs. The swap is deliberately contained:
+`saveUploadedFile` / `saveGeneratedImage` / `saveGeneratedVideo` /
+`readStoredFile` / `deleteStoredFile` are the entire surface area, plus the
+file-serving route at `src/app/api/assets/[assetId]/file/`.
 
 ## Deployment
 
@@ -214,9 +278,8 @@ PostgreSQL database attached. Set `DATABASE_URL` and `AUTH_SECRET` as
 environment variables, then run `npx prisma migrate deploy` before starting
 the app.
 
-**Vercel note:** the Visualization feature stores uploaded/generated files
-on local disk (`src/lib/storage.ts`), which doesn't persist on Vercel's
-serverless functions. Deploying there works for every other feature, but
-uploads would be lost between requests. Use a host with a persistent disk
-(Railway, Fly.io, a VPS) for Visualization to work, or ask to have the
-storage module swapped for an S3-compatible provider first.
+**Storage first:** see "Storage: development-stage" above. Local-disk storage
+does not persist on Vercel's serverless functions and cannot be shared between
+instances anywhere. Use a host with a persistent disk (Railway, Fly.io, a VPS)
+for Visualization to work at all, and swap in object storage before this is
+anything but a development deployment.

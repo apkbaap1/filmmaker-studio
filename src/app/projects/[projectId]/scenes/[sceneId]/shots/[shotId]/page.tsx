@@ -5,10 +5,16 @@ import { requireProjectAccess } from "@/lib/access";
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
 import { deriveBlockingContext, parseBlocking } from "@/lib/blocking";
 import { formatSlugline } from "@/lib/scene-format";
-import { buildShotContext, generateImagePrompt, generateVideoPrompt } from "@/lib/prompt";
+import {
+  buildShotContext,
+  generateImagePrompt,
+  generateImageToVideoPrompt,
+  generateVideoPrompt,
+} from "@/lib/prompt";
 import { getImageProvider } from "@/lib/ai/image-providers";
+import { configuredVideoProviderId, getVideoProvider } from "@/lib/ai/video-providers";
 import { ShotDesign } from "./shot-design";
-import { ShotImageGeneration } from "./shot-image-generation";
+import { ShotGeneration } from "./shot-generation";
 
 export default async function ShotDesignPage({
   params,
@@ -38,6 +44,7 @@ export default async function ShotDesignPage({
   );
   const imagePrompt = generateImagePrompt(context);
   const videoPrompt = generateVideoPrompt(context);
+  const imageToVideoPrompt = generateImageToVideoPrompt(context);
 
   const generations = await prisma.generation.findMany({
     where: { shotId, projectId },
@@ -45,8 +52,17 @@ export default async function ShotDesignPage({
     include: { asset: { select: { mimeType: true } } },
   });
 
-  // Only whether a key is present crosses to the browser — never the key.
+  // Stills already attached to this shot are what image-to-video can animate.
+  const sourceFrames = await prisma.asset.findMany({
+    where: { shotId, projectId, type: "IMAGE" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, caption: true, source: true, createdAt: true },
+  });
+
+  // Only whether a provider is configured crosses to the browser — never a key.
   const imageProvider = getImageProvider();
+  const videoProviderId = configuredVideoProviderId();
+  const videoProvider = videoProviderId ? getVideoProvider(videoProviderId) : undefined;
 
   return (
     <div className="space-y-6">
@@ -86,24 +102,39 @@ export default async function ShotDesignPage({
         }}
       />
 
-      <ShotImageGeneration
+      <ShotGeneration
         projectId={projectId}
         sceneId={sceneId}
         shotId={shotId}
-        compiledPrompt={imagePrompt.text}
-        providerLabel={imageProvider.label}
+        prompts={{
+          IMAGE: imagePrompt.text,
+          VIDEO: videoPrompt.text,
+          IMAGE_TO_VIDEO: imageToVideoPrompt.text,
+        }}
+        imageProviderLabel={imageProvider.label}
         imageGenAvailable={imageProvider.isConfigured()}
+        videoProviderLabel={videoProvider?.label ?? null}
+        videoGenAvailable={Boolean(videoProvider)}
+        sourceFrames={sourceFrames.map((asset) => ({
+          id: asset.id,
+          label:
+            asset.caption ??
+            `${asset.source === "GENERATED" ? "Generated" : "Uploaded"} frame · ${asset.createdAt.toLocaleString()}`,
+        }))}
         generations={generations.map((g) => ({
           id: g.id,
+          mode: g.mode,
           status: g.status,
           source: g.source,
           promptUsed: g.promptUsed,
           promptEdited: g.promptEdited,
           error: g.error,
           providerId: g.providerId,
+          durationSeconds: g.durationSeconds,
           createdAt: g.createdAt.toISOString(),
           assetId: g.assetId,
           assetMimeType: g.asset?.mimeType ?? null,
+          sourceAssetId: g.sourceAssetId,
         }))}
       />
 

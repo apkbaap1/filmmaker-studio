@@ -54,6 +54,9 @@ export const shotSchema = z.object({
   // Movement in the environment itself, distinct from camera and subject movement
   environmentalMovement: z.string().max(500).optional().or(z.literal("")),
 
+  // Costume/wardrobe — a continuity property, not a motion one
+  wardrobe: z.string().max(500).optional().or(z.literal("")),
+
   // Composition (spatial placement) and shot scale — separate axes
   composition: z.string().max(500).optional().or(z.literal("")),
   finalComposition: z.string().max(500).optional().or(z.literal("")),
@@ -201,7 +204,19 @@ export const generateImageSchema = z.object({
  * The prompt actually submitted for a structured generation. Longer than
  * generateImageSchema's free-text limit because a compiled cinematic prompt
  * carries every field the filmmaker specified.
+ *
+ * Line endings are normalised to \n first. A multipart form body encodes every
+ * newline as CRLF, so without this a multi-line prompt that nobody touched comes
+ * back differing from the compiled text on all eight of its line breaks — which
+ * would flag every video generation as hand-edited and record a prompt whose
+ * bytes never matched what the compiler produced. CRLF is a transport artifact,
+ * not a filmmaker's edit; normalising it here means the stored prompt, the
+ * comparison and what the provider receives are all the same string.
  */
 export const generationPromptSchema = z.object({
-  prompt: z.string().min(3, "The prompt is empty — fill in some shot details first").max(6000),
+  prompt: z
+    .string()
+    .min(3, "The prompt is empty — fill in some shot details first")
+    .max(6000)
+    .transform((text) => text.replace(/\r\n/g, "\n")),
 });

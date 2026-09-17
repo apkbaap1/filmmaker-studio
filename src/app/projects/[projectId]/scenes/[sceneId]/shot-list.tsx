@@ -97,6 +97,7 @@ type Shot = {
   subjectEndPosition: string | null;
   characterBlocking: string | null;
   environmentalMovement: string | null;
+  wardrobe: string | null;
 
   composition: string | null;
   finalComposition: string | null;
@@ -260,7 +261,7 @@ function ShotFields({ defaultValues }: { defaultValues?: Partial<Shot> }) {
             />
           </Field>
         </div>
-        <div className="mt-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label="Environmental movement"
             hint="Movement in the environment itself — not the camera, not the subject."
@@ -269,6 +270,16 @@ function ShotFields({ defaultValues }: { defaultValues?: Partial<Shot> }) {
               name="environmentalMovement"
               defaultValue={defaultValues?.environmentalMovement ?? ""}
               placeholder="Light fog drifting through the station"
+            />
+          </Field>
+          <Field
+            label="Wardrobe"
+            hint="Listed under PRESERVE when animating a frame, so costume stays put."
+          >
+            <Input
+              name="wardrobe"
+              defaultValue={defaultValues?.wardrobe ?? ""}
+              placeholder="Charcoal overcoat, damp shoulders"
             />
           </Field>
         </div>

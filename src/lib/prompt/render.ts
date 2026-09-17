@@ -107,8 +107,10 @@ function environmentSentence(spec: CinematicPromptSpec): string | undefined {
 function actionSentence(spec: CinematicPromptSpec): string | undefined {
   const blocking = v(spec.subject.blocking);
   const facing = v(spec.subject.facing);
+  const wardrobe = v(spec.subject.wardrobe);
   return sentences([
     v(spec.subject.action),
+    wardrobe && `Wardrobe: ${wardrobe}`,
     blocking && `Blocking: ${blocking}`,
     facing && `Subject facing: ${facing}`,
   ]);
@@ -168,30 +170,34 @@ function operationPhrase(spec: CinematicPromptSpec): string | undefined {
 }
 
 /**
- * The temporal block, as a progression:
+ * The temporal block, rendered as an explicit progression rather than a list of
+ * facts, because a video model reads order:
  *
- *   START (framing / camera position / subject position)
- *     → OPERATION (movement, focus change, or explicitly static)
- *     → END (framing / camera position / subject position)
- *     → DURATION
+ *   START      the frame at the head of the shot
+ *   MOTION     what actually operates over the shot's duration
+ *   END        the frame at the tail
+ *   HOLD       the axes that deliberately do not change while the rest does
+ *   DURATION   how long all of that takes
  *
- * Every line is omitted unless the filmmaker specified it. A start or end state
- * is never inferred from the movement type.
+ * Every line is omitted unless the filmmaker specified it, and a start or end
+ * state is never inferred from the movement type. HOLD is not an exception: it
+ * only ever restates a value they entered, and only when something else is
+ * moving for it to be held against.
  */
 function temporalParagraph(spec: CinematicPromptSpec): string | undefined {
   const m = spec.motion;
 
-  // Composition only appears here when it actually transitions — a stable
-  // composition is already stated once as a constant in the static block, and
-  // repeating it as an "opening" state would imply it is about to change.
+  const framingProgresses = Boolean(v(m.finalFraming));
   const compositionTransitions = Boolean(v(m.finalComposition));
 
   // Semicolons, not commas: values like "4m back, platform edge" contain commas
   // of their own and would be unreadable in a comma-separated list.
   // Labels stay capitalised so each group reads correctly whichever of its parts
   // the filmmaker happened to specify first.
-  const startGroup = semicolonSentence([
+  const start = semicolonSentence([
     v(m.initialFraming) && `Opening framing: ${v(m.initialFraming)}`,
+    // A stable composition is stated once under HOLD instead; calling it the
+    // "opening" composition would imply it is about to change.
     compositionTransitions &&
       v(spec.cinematography.composition) &&
       `Opening composition: ${v(spec.cinematography.composition)}`,
@@ -199,27 +205,47 @@ function temporalParagraph(spec: CinematicPromptSpec): string | undefined {
     v(m.subjectStartPosition) && `Subject starts at ${v(m.subjectStartPosition)}`,
   ]);
 
-  const transitionGroup = sentences([
+  const motion = sentences([
     operationPhrase(spec),
     v(m.subjectMovement) && `Subject movement: ${v(m.subjectMovement)}`,
     v(spec.environment.movement) && `Environmental movement: ${v(spec.environment.movement)}`,
   ]);
 
-  const endGroup = semicolonSentence([
+  const end = semicolonSentence([
     v(m.finalFraming) && `Closing framing: ${v(m.finalFraming)}`,
     v(m.finalComposition) && `Closing composition: ${v(m.finalComposition)}`,
     v(m.cameraEndPosition) && `Camera ends at ${v(m.cameraEndPosition)}`,
     v(m.subjectEndPosition) && `Subject ends at ${v(m.subjectEndPosition)}`,
   ]);
 
+  // Something has to be moving for "holds" to mean anything. Note that a rack
+  // focus counts: the frame holding while focus travels is the whole point.
+  const somethingMoves = Boolean(
+    motion || framingProgresses || compositionTransitions || v(m.subjectMovement)
+  );
+
+  const hold = somethingMoves
+    ? semicolonSentence([
+        !compositionTransitions &&
+          v(spec.cinematography.composition) &&
+          `Composition stays as specified: ${v(spec.cinematography.composition)}`,
+        !framingProgresses &&
+          v(spec.cinematography.framing) &&
+          `Framing stays as specified: ${v(spec.cinematography.framing)}`,
+      ])
+    : undefined;
+
   const duration = v(m.durationSeconds);
 
-  return sentences([
-    startGroup,
-    transitionGroup,
-    endGroup,
-    duration !== undefined && `Duration: ${duration} seconds`,
-  ]);
+  return [
+    start && `START — ${start}`,
+    motion && `MOTION — ${motion}`,
+    end && `END — ${end}`,
+    hold && `HOLD (must not change while the above moves) — ${hold}`,
+    duration !== undefined && `DURATION — ${duration} seconds.`,
+  ]
+    .filter((line): line is string => typeof line === "string")
+    .join("\n") || undefined;
 }
 
 function audioParagraph(spec: CinematicPromptSpec): string | undefined {

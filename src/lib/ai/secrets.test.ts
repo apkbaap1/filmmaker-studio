@@ -168,21 +168,24 @@ describe("provider credentials stay server-side", () => {
   });
 
   it("the generation UI reads no environment variable at all", () => {
-    const ui = modules.get(
-      path.join(SRC, "app/projects/[projectId]/scenes/[sceneId]/shots/[shotId]/shot-image-generation.tsx")
-    );
-    assert.ok(ui, "the generation UI component moved — update this test");
-    assert.ok(ui.isClient, "the generation UI is a client component");
-    assert.ok(!/process\.env/.test(ui.source), "the generation UI must not read process.env");
+    const shotDir = "app/projects/[projectId]/scenes/[sceneId]/shots/[shotId]";
+    for (const name of ["shot-generation.tsx", "generation-card.tsx"]) {
+      const ui = modules.get(path.join(SRC, shotDir, name));
+      assert.ok(ui, `${name} moved — update this test`);
+      assert.ok(ui.isClient, `${name} is a client component`);
+      assert.ok(!/process\.env/.test(ui.source), `${name} must not read process.env`);
+    }
   });
 
-  it("the image provider registry is only reachable from server code", () => {
-    const registry = path.join(SRC, "lib/ai/image-providers/index.ts");
-    assert.ok(modules.has(registry), "the image provider registry moved — update this test");
+  it("the provider registries are only reachable from server code", () => {
+    for (const registry of ["lib/ai/image-providers/index.ts", "lib/ai/video-providers/index.ts"]) {
+      const file = path.join(SRC, registry);
+      assert.ok(modules.has(file), `${registry} moved — update this test`);
 
-    const clientImporters = [...modules.values()]
-      .filter((m) => m.isClient && m.imports.includes(registry))
-      .map((m) => rel(m.file));
-    assert.deepEqual(clientImporters, []);
+      const clientImporters = [...modules.values()]
+        .filter((m) => m.isClient && m.imports.includes(file))
+        .map((m) => rel(m.file));
+      assert.deepEqual(clientImporters, [], `${registry} is imported by a client component`);
+    }
   });
 });

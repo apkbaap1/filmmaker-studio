@@ -33,6 +33,7 @@ function parseShotForm(formData: FormData) {
     subjectEndPosition: formData.get("subjectEndPosition") ?? "",
     characterBlocking: formData.get("characterBlocking") ?? "",
     environmentalMovement: formData.get("environmentalMovement") ?? "",
+    wardrobe: formData.get("wardrobe") ?? "",
 
     composition: formData.get("composition") ?? "",
     finalComposition: formData.get("finalComposition") ?? "",
