@@ -33,6 +33,12 @@ export const shotSchema = z.object({
   lens: z.string().max(100).optional().or(z.literal("")),
   equipmentNotes: z.string().max(500).optional().or(z.literal("")),
   status: z.enum(["PLANNED", "SHOT", "CUT"]),
+  cameraAngle: z
+    .enum(["EYE_LEVEL", "LOW_ANGLE", "HIGH_ANGLE", "DUTCH_ANGLE", "BIRDS_EYE", "WORMS_EYE", "OVER_THE_SHOULDER", "POV"])
+    .optional()
+    .or(z.literal("")),
+  lightingNotes: z.string().max(1000).optional().or(z.literal("")),
+  soundDesignNotes: z.string().max(1000).optional().or(z.literal("")),
 });
 
 export const scheduleDaySchema = z.object({
@@ -99,4 +105,14 @@ export const budgetLineItemSchema = z.object({
   estimated: z.coerce.number().min(0),
   actual: z.coerce.number().min(0),
   notes: z.string().max(1000).optional().or(z.literal("")),
+});
+
+export const assetUploadSchema = z.object({
+  caption: z.string().max(300).optional().or(z.literal("")),
+  type: z.enum(["IMAGE", "VIDEO", "DIAGRAM"]),
+});
+
+export const generateImageSchema = z.object({
+  prompt: z.string().min(3, "Describe what you want to generate").max(1000),
+  caption: z.string().max(300).optional().or(z.literal("")),
 });

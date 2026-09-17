@@ -45,6 +45,28 @@ enum CastingStatus {
   DECLINED
 }
 
+enum AssetType {
+  IMAGE
+  VIDEO
+  DIAGRAM
+}
+
+enum AssetSource {
+  UPLOADED
+  GENERATED
+}
+
+enum CameraAngle {
+  EYE_LEVEL
+  LOW_ANGLE
+  HIGH_ANGLE
+  DUTCH_ANGLE
+  BIRDS_EYE
+  WORMS_EYE
+  OVER_THE_SHOULDER
+  POV
+}
+
 model User {
   id           String   @id @default(cuid())
   name         String
@@ -79,6 +101,7 @@ model Project {
   locations        Location[]
   equipmentItems   Equipment[]
   budgetCategories BudgetCategory[]
+  assets           Asset[]
 }
 
 model ProjectMember {
@@ -111,27 +134,55 @@ model Scene {
   project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   shots         ShotListItem[]
   scheduleItems ScheduleItem[]
+  assets        Asset[]
 
   @@index([projectId])
 }
 
 model ShotListItem {
-  id             String     @id @default(cuid())
-  sceneId        String
-  shotNumber     String
-  shotType       String
-  description    String?
-  cameraMovement String?
-  lens           String?
-  equipmentNotes String?
-  status         ShotStatus @default(PLANNED)
-  order          Int        @default(0)
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  id               String       @id @default(cuid())
+  sceneId          String
+  shotNumber       String
+  shotType         String
+  description      String?
+  cameraMovement   String?
+  lens             String?
+  equipmentNotes   String?
+  status           ShotStatus   @default(PLANNED)
+  cameraAngle      CameraAngle?
+  lightingNotes    String?
+  soundDesignNotes String?
+  order            Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  scene Scene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  scene  Scene   @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  assets Asset[]
 
   @@index([sceneId])
+}
+
+model Asset {
+  id        String      @id @default(cuid())
+  projectId String
+  sceneId   String?
+  shotId    String?
+  type      AssetType
+  source    AssetSource
+  filePath  String
+  mimeType  String
+  fileSize  Int
+  caption   String?
+  prompt    String?
+  createdAt DateTime    @default(now())
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene   Scene?        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  shot    ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([sceneId])
+  @@index([shotId])
 }
 
 model ScheduleDay {

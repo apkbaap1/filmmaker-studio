@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    serverActions: {
+      // Storyboard/reference uploads (images, short video clips) go through
+      // server actions, which default to a 1MB body limit.
+      bodySizeLimit: "50mb",
+    },
+  },
 };
 
 export default nextConfig;

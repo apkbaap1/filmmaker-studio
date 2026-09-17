@@ -28,6 +28,16 @@ locations, equipment, and budget tracking.
 - **Equipment** — owned/rented/borrowed, quantity, daily cost, vendor.
 - **Budget** — categories with line items tracking estimated vs. actual
   spend.
+- **Visualization** — a dedicated space to previsualize the film:
+  - Project-wide mood board for concept art, tone references, diagrams.
+  - Per-scene **storyboard** gallery (upload frames or generate them with AI).
+  - Per-shot **camera angle**, **lighting notes**, and **sound design notes**,
+    plus a collapsible reference-image gallery on every shot.
+  - **AI image generation** (OpenAI `gpt-image-1`) for storyboard frames from
+    a text prompt — optional, see "AI image generation" below.
+  - Video generation isn't wired up yet (no provider chosen) — you can
+    still upload your own video reference clips. Ask to have this added
+    once you've picked a provider (Runway, Luma, etc.).
 
 ## Getting started
 
@@ -74,7 +84,25 @@ npx prisma migrate dev
 - **Hosted free tier** (Neon, Supabase, Railway, etc.): use the connection
   string they give you as `DATABASE_URL`.
 
-### 3. Run the app
+### 3. (Optional) enable AI storyboard generation
+
+Uploading and organizing your own images/diagrams/video works with no extra
+setup. To also enable the "Generate with AI" button on storyboards and shot
+references, add an OpenAI key to `.env`:
+
+```
+OPENAI_API_KEY="sk-..."
+```
+
+Without it, the button is still there but shows a message pointing back
+here instead of erroring.
+
+Uploaded and generated files are saved to `./storage/uploads` on disk by
+default (configurable via `STORAGE_DIR`). This works great for self-hosting
+but **not** on Vercel, which has no persistent filesystem — see
+"Deployment" below if you're targeting Vercel.
+
+### 4. Run the app
 
 ```bash
 npm run dev
@@ -91,8 +119,12 @@ src/auth.ts, src/auth.config.ts   NextAuth setup (split for edge middleware)
 src/middleware.ts              Route protection
 src/lib/actions/*              Server actions (mutations) per module
 src/lib/validation.ts          Zod schemas shared by every form
-src/app/projects/[projectId]/  Project workspace: scenes, schedule,
-                                cast-crew, locations, equipment, budget
+src/lib/storage.ts             Local-disk file storage for uploaded/generated assets
+src/lib/ai/openai-image.ts     AI storyboard image generation (OpenAI)
+src/app/api/assets/[id]/file/  Authenticated file-serving route
+src/app/projects/[projectId]/  Project workspace: scenes, visualization,
+                                schedule, cast-crew, locations, equipment,
+                                budget
 ```
 
 ## Deployment
@@ -101,3 +133,10 @@ Deploy anywhere that runs Next.js (Vercel, Railway, Fly.io, etc.) with a
 PostgreSQL database attached. Set `DATABASE_URL` and `AUTH_SECRET` as
 environment variables, then run `npx prisma migrate deploy` before starting
 the app.
+
+**Vercel note:** the Visualization feature stores uploaded/generated files
+on local disk (`src/lib/storage.ts`), which doesn't persist on Vercel's
+serverless functions. Deploying there works for every other feature, but
+uploads would be lost between requests. Use a host with a persistent disk
+(Railway, Fly.io, a VPS) for Visualization to work, or ask to have the
+storage module swapped for an S3-compatible provider first.

@@ -16,6 +16,9 @@ function parseShotForm(formData: FormData) {
     lens: formData.get("lens") ?? "",
     equipmentNotes: formData.get("equipmentNotes") ?? "",
     status: formData.get("status") || "PLANNED",
+    cameraAngle: formData.get("cameraAngle") ?? "",
+    lightingNotes: formData.get("lightingNotes") ?? "",
+    soundDesignNotes: formData.get("soundDesignNotes") ?? "",
   });
 }
 
@@ -31,7 +34,9 @@ export async function createShotAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.shotListItem.create({ data: { ...parsed.data, sceneId } });
+  await prisma.shotListItem.create({
+    data: { ...parsed.data, cameraAngle: parsed.data.cameraAngle || null, sceneId },
+  });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   return undefined;
 }
@@ -49,7 +54,10 @@ export async function updateShotAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.shotListItem.update({ where: { id: shotId }, data: parsed.data });
+  await prisma.shotListItem.update({
+    where: { id: shotId },
+    data: { ...parsed.data, cameraAngle: parsed.data.cameraAngle || null },
+  });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   return undefined;
 }

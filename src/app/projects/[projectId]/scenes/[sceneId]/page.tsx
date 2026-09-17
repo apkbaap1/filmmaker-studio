@@ -6,6 +6,8 @@ import { SceneForm } from "../scene-form";
 import { updateSceneAction } from "@/lib/actions/scenes";
 import { ShotList } from "./shot-list";
 import { DeleteSceneButton } from "./delete-scene-button";
+import { AssetGallery } from "@/components/asset-gallery";
+import { isImageGenerationConfigured } from "@/lib/ai/openai-image";
 
 export default async function SceneDetailPage({
   params,
@@ -17,9 +19,14 @@ export default async function SceneDetailPage({
 
   const scene = await prisma.scene.findFirst({
     where: { id: sceneId, projectId },
-    include: { shots: { orderBy: { createdAt: "asc" } } },
+    include: {
+      shots: { orderBy: { createdAt: "asc" }, include: { assets: true } },
+      assets: { where: { shotId: null }, orderBy: { createdAt: "desc" } },
+    },
   });
   if (!scene) notFound();
+
+  const imageGenAvailable = isImageGenerationConfigured();
 
   const boundAction = updateSceneAction.bind(null, projectId, sceneId);
 
@@ -46,10 +53,25 @@ export default async function SceneDetailPage({
       </div>
 
       <div>
+        <h2 className="mb-3 text-sm font-semibold text-foreground">Storyboard</h2>
+        <AssetGallery
+          projectId={projectId}
+          scope={{ sceneId }}
+          assets={scene.assets}
+          imageGenAvailable={imageGenAvailable}
+        />
+      </div>
+
+      <div>
         <h2 className="mb-3 text-sm font-semibold text-foreground">
           Shot list ({scene.shots.length})
         </h2>
-        <ShotList projectId={projectId} sceneId={sceneId} shots={scene.shots} />
+        <ShotList
+          projectId={projectId}
+          sceneId={sceneId}
+          shots={scene.shots}
+          imageGenAvailable={imageGenAvailable}
+        />
       </div>
     </div>
   );
