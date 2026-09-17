@@ -39,15 +39,25 @@ npm install
 
 ### 2. Set up the database
 
-You need a PostgreSQL database. Copy `.env.example` to `.env` and fill in
-your connection string and an auth secret:
+You need a PostgreSQL database. The easiest way is Docker Compose, which
+ships with this repo:
+
+```bash
+docker compose up -d
+```
+
+That starts Postgres on `localhost:5432` with user `postgres`, password
+`postgres`, database `filmmaker_studio` — matching the default in
+`.env.example`. (No Docker? See "Other ways to get Postgres" below.)
+
+Copy `.env.example` to `.env` and set an auth secret:
 
 ```bash
 cp .env.example .env
 ```
 
 ```
-DATABASE_URL="postgresql://user:password@localhost:5432/filmmaker_studio?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/filmmaker_studio?schema=public"
 AUTH_SECRET="generate with: openssl rand -base64 32"
 ```
 
@@ -56,6 +66,13 @@ Then apply the schema:
 ```bash
 npx prisma migrate dev
 ```
+
+#### Other ways to get Postgres
+
+- **Local install**: create a database named `filmmaker_studio` and point
+  `DATABASE_URL` at it.
+- **Hosted free tier** (Neon, Supabase, Railway, etc.): use the connection
+  string they give you as `DATABASE_URL`.
 
 ### 3. Run the app
 
