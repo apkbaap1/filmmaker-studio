@@ -1,6 +1,7 @@
 import type {
   CinematicPromptSpec,
   Maybe,
+  MovementKind,
   PromptMode,
   ShotVisualizationContext,
 } from "./types.ts";
@@ -10,6 +11,50 @@ const INT_EXT_LABEL: Record<string, string> = {
   EXT: "Exterior",
   INT_EXT: "Interior/Exterior",
 };
+
+/**
+ * Maps the camera-movement vocabulary to what each value physically is. Rack
+ * focus is the important one: it is an optical change, so it must never be
+ * described as the camera moving. Static is the other: it asserts the absence
+ * of movement rather than a kind of movement.
+ */
+const MOVEMENT_KINDS: Record<string, MovementKind> = {
+  "static": "static",
+
+  "dolly in": "translation",
+  "dolly out": "translation",
+  "push in": "translation",
+  "pull out": "translation",
+  "tracking": "translation",
+  "truck left": "translation",
+  "truck right": "translation",
+  "crane": "translation",
+  "crane up": "translation",
+  "crane down": "translation",
+  "pedestal": "translation",
+  "orbit": "translation",
+  "arc": "translation",
+
+  "pan": "rotation",
+  "tilt": "rotation",
+  "whip pan": "rotation",
+
+  "rack focus": "focus",
+
+  "handheld": "support",
+  "steadicam": "support",
+  "gimbal": "support",
+  "drone": "support",
+};
+
+/**
+ * Classifies a movement value. Unrecognised values — the field accepts free
+ * text — are `other`: they get described exactly as written, never reinterpreted.
+ */
+export function classifyMovement(movement: string | null | undefined): MovementKind {
+  if (!movement || movement.trim() === "") return "unspecified";
+  return MOVEMENT_KINDS[movement.trim().toLowerCase()] ?? "other";
+}
 
 /**
  * The single gate every value passes through. A null, undefined or blank value
@@ -87,10 +132,20 @@ export function compileSpec(
 
     motion: {
       cameraMovement: specified(shot.cameraMovement, "shot.cameraMovement"),
+      movementKind: classifyMovement(shot.cameraMovement),
       speed: specified(shot.movementSpeed, "shot.movementSpeed"),
-      startState: specified(shot.cameraStartPosition, "shot.cameraStartPosition"),
-      endState: specified(shot.cameraEndPosition, "shot.cameraEndPosition"),
+
+      initialFraming: specified(shot.initialFraming, "shot.initialFraming"),
+      finalFraming: specified(shot.finalFraming, "shot.finalFraming"),
+      finalComposition: specified(shot.finalComposition, "shot.finalComposition"),
+
+      cameraStartPosition: specified(shot.cameraStartPosition, "shot.cameraStartPosition"),
+      cameraEndPosition: specified(shot.cameraEndPosition, "shot.cameraEndPosition"),
+
       subjectMovement: specified(shot.subjectMovement, "shot.subjectMovement"),
+      subjectStartPosition: specified(shot.subjectStartPosition, "shot.subjectStartPosition"),
+      subjectEndPosition: specified(shot.subjectEndPosition, "shot.subjectEndPosition"),
+
       durationSeconds: specified(shot.durationSeconds, "shot.durationSeconds"),
     },
 
@@ -124,15 +179,40 @@ function deriveContinuity(spec: CinematicPromptSpec): { preserve: string[]; anim
   const preserve: string[] = [];
   const animate: string[] = [];
 
+  const kind = spec.motion.movementKind;
+
+  // Both transitions are driven purely by an explicit end state. Camera movement
+  // is never used to infer either one: a dolly-in does not by itself mean the
+  // filmmaker wants the framing redefined, and it certainly does not mean the
+  // subject leaves the left third.
+  const framingProgresses = Boolean(spec.motion.finalFraming);
+  const compositionChanges = Boolean(spec.motion.finalComposition);
+
   if (spec.subject.characters.length > 0) preserve.push("Character identity and appearance");
   if (spec.environment.location) preserve.push("Location");
   if (spec.lighting.setup) preserve.push("Lighting setup");
-  if (spec.cinematography.composition) preserve.push("Composition");
-  if (spec.cinematography.framing) preserve.push("Framing");
-  if (spec.cinematography.shotSize) preserve.push("Shot size");
+
+  // Spatial placement is independent of shot scale. It survives a framing change
+  // — a dolly-in can tighten the frame while holding the subject on the left
+  // third — and is only released when a composition change is stated outright.
+  if (spec.cinematography.composition && !compositionChanges) preserve.push("Composition");
+
+  // Shot scale, by contrast, is released as soon as a framing transition is specified.
+  if (spec.cinematography.framing && !framingProgresses && kind !== "focus") {
+    preserve.push("Framing");
+  }
+  if (spec.cinematography.shotSize && !framingProgresses) preserve.push("Shot size");
   if (spec.cinematography.lens || spec.cinematography.focalLength) preserve.push("Lens character");
 
-  if (spec.motion.cameraMovement) animate.push("Camera movement");
+  // A rack focus changes focus, not position — so the frame itself holds.
+  if (kind === "focus") preserve.push("Camera position and framing");
+
+  if (spec.motion.cameraMovement && kind !== "static" && kind !== "focus") {
+    animate.push("Camera movement");
+  }
+  if (kind === "focus") animate.push("Focus transition");
+  if (framingProgresses) animate.push("Framing progression");
+  if (compositionChanges) animate.push("Composition change");
   if (spec.motion.subjectMovement) animate.push("Subject movement");
   if (spec.subject.action) animate.push("Character action");
   if (spec.environment.movement) animate.push("Environmental movement");

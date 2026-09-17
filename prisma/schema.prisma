@@ -150,14 +150,26 @@ model ShotListItem {
   cameraEndPosition   String?
   movementSpeed       String?
 
-  // Subject / blocking
-  subjectMovement   String?
-  characterBlocking String?
+  // Temporal framing state. Distinct from shotType (the shot's designation) and
+  // from cameraStart/EndPosition (where the camera physically sits): these are
+  // what the frame actually shows at the head and tail of a moving shot.
+  initialFraming String?
+  finalFraming   String?
 
-  // Composition
-  composition  String?
-  framing      String?
-  depthOfField String?
+  // Subject / blocking
+  subjectMovement      String?
+  subjectStartPosition String?
+  subjectEndPosition   String?
+  characterBlocking    String?
+
+  // Composition. `composition` is spatial placement (subject on the left third)
+  // and `framing` is shot scale (tight/loose) — two different things. Both are
+  // treated as stable for the duration of the shot unless a temporal transition
+  // is explicitly specified via finalComposition / finalFraming.
+  composition      String?
+  finalComposition String?
+  framing          String?
+  depthOfField     String?
 
   // Lighting & mood
   lightingNotes String?

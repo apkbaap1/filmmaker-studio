@@ -23,6 +23,28 @@ export type Maybe<T> = Specified<T> | undefined;
 
 export type PromptMode = "image" | "video" | "image-to-video" | "storyboard";
 
+/**
+ * What kind of operation a camera-movement value actually describes. Classified
+ * so the renderers don't have to string-match, and so semantically different
+ * operations are never described as the same thing:
+ *
+ * - `static`      the camera does not move
+ * - `translation` the camera physically travels (dolly, track, crane, orbit…)
+ * - `rotation`    the camera pivots in place (pan, tilt, whip pan)
+ * - `focus`       an optical change, not a camera move (rack focus)
+ * - `support`     how the camera is carried (handheld, Steadicam, gimbal, drone)
+ * - `other`       a custom value the filmmaker typed; described, never reinterpreted
+ * - `unspecified` no movement was specified at all
+ */
+export type MovementKind =
+  | "static"
+  | "translation"
+  | "rotation"
+  | "focus"
+  | "support"
+  | "other"
+  | "unspecified";
+
 export interface CharacterRef {
   name: string;
   from: string;
@@ -77,13 +99,43 @@ export interface CinematicPromptSpec {
     mood: Maybe<string>;
   };
 
-  /** Temporal specification. Populated for every mode; only rendered by the modes with a time axis. */
+  /**
+   * Temporal specification. Populated for every mode; only rendered by the modes
+   * with a time axis.
+   *
+   * Four independent axes are deliberately kept apart, because conflating them
+   * is how a "Medium Close-Up that dollies in from a wide" gets mis-described:
+   *
+   * - **framing** (`initialFraming` → `finalFraming`) — what the frame shows over time.
+   *   The shot's *designation* lives separately in `cinematography.shotSize`.
+   * - **composition** (`cinematography.composition` → `finalComposition`) — spatial
+   *   placement of the subject in frame. A dolly-in can change the framing while
+   *   the subject stays on the left third, so a framing change never implies a
+   *   composition change. Composition is stable unless `finalComposition` is set.
+   * - **camera position** (`cameraStartPosition` → `cameraEndPosition`) — where the
+   *   camera physically sits.
+   * - **subject position** (`subjectStartPosition` → `subjectEndPosition`) — where the
+   *   performer is, independent of both.
+   */
   motion: {
     cameraMovement: Maybe<string>;
+    /** Derived from `cameraMovement`; `unspecified` when no movement was given. */
+    movementKind: MovementKind;
     speed: Maybe<string>;
-    startState: Maybe<string>;
-    endState: Maybe<string>;
+
+    initialFraming: Maybe<string>;
+    finalFraming: Maybe<string>;
+
+    /** Set only when the filmmaker explicitly specified the placement changing. */
+    finalComposition: Maybe<string>;
+
+    cameraStartPosition: Maybe<string>;
+    cameraEndPosition: Maybe<string>;
+
     subjectMovement: Maybe<string>;
+    subjectStartPosition: Maybe<string>;
+    subjectEndPosition: Maybe<string>;
+
     durationSeconds: Maybe<number>;
   };
 
@@ -124,10 +176,16 @@ export interface ShotInput {
   cameraEndPosition?: string | null;
   movementSpeed?: string | null;
 
+  initialFraming?: string | null;
+  finalFraming?: string | null;
+
   subjectMovement?: string | null;
+  subjectStartPosition?: string | null;
+  subjectEndPosition?: string | null;
   characterBlocking?: string | null;
 
   composition?: string | null;
+  finalComposition?: string | null;
   framing?: string | null;
   depthOfField?: string | null;
 

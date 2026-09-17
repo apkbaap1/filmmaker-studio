@@ -30,9 +30,22 @@ function sentences(parts: Array<string | undefined | false>): string | undefined
 
 /** Joins parts of a single sentence with commas, then terminates it once. */
 function commaSentence(parts: Array<string | undefined | false>): string | undefined {
+  return joinedSentence(parts, ", ");
+}
+
+/**
+ * Joins with semicolons. Used where the parts themselves contain commas — a
+ * camera position like "4m back, platform edge" would otherwise be unreadable
+ * inside a comma-separated list.
+ */
+function semicolonSentence(parts: Array<string | undefined | false>): string | undefined {
+  return joinedSentence(parts, "; ");
+}
+
+function joinedSentence(parts: Array<string | undefined | false>, separator: string): string | undefined {
   const kept = keep(parts);
   if (kept.length === 0) return undefined;
-  const text = kept.join(", ");
+  const text = kept.join(separator);
   return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
@@ -93,10 +106,12 @@ function compositionSentence(spec: CinematicPromptSpec): string | undefined {
   const composition = v(spec.cinematography.composition);
   const framing = v(spec.cinematography.framing);
   const depthOfField = v(spec.cinematography.depthOfField);
-  return commaSentence([
+  // Labels stay capitalised so the sentence reads correctly whichever of these
+  // the filmmaker happened to specify.
+  return semicolonSentence([
     composition && `Composition: ${composition}`,
-    framing && `framing: ${framing}`,
-    depthOfField && `depth of field: ${depthOfField}`,
+    framing && `Framing: ${framing}`,
+    depthOfField && `Depth of field: ${depthOfField}`,
   ]);
 }
 
@@ -116,28 +131,81 @@ function notesSentence(spec: CinematicPromptSpec): string | undefined {
   return sentences([v(spec.notes.description), directorNotes && `Director's note: ${directorNotes}`]);
 }
 
-/** The temporal block: start state → movement → subject motion → end state → duration. */
-function temporalParagraph(spec: CinematicPromptSpec): string | undefined {
-  const start = v(spec.motion.startState);
+/**
+ * Describes the camera operation according to what it actually is. A rack focus
+ * is an optical change and is never phrased as the camera moving; a static
+ * camera asserts the absence of movement; anything else is described as written.
+ */
+function operationPhrase(spec: CinematicPromptSpec): string | undefined {
   const movement = v(spec.motion.cameraMovement);
   const speed = v(spec.motion.speed);
-  const subject = v(spec.motion.subjectMovement);
-  const end = v(spec.motion.endState);
-  const envMotion = v(spec.environment.movement);
-  const duration = v(spec.motion.durationSeconds);
+  if (!movement) return undefined;
 
-  const cameraPhrase = movement
-    ? speed
-      ? `Camera movement — ${movement}, ${speed} pace`
-      : `Camera movement — ${movement}`
-    : undefined;
+  const paced = (label: string) => (speed ? `${label}, ${speed} pace` : label);
+
+  switch (spec.motion.movementKind) {
+    case "static":
+      return "Camera remains static — no camera movement";
+    case "focus":
+      return paced(`Focus transition — ${movement}; the camera itself does not move`);
+    case "support":
+      return paced(`Camera support — ${movement}`);
+    default:
+      return paced(`Camera movement — ${movement}`);
+  }
+}
+
+/**
+ * The temporal block, as a progression:
+ *
+ *   START (framing / camera position / subject position)
+ *     → OPERATION (movement, focus change, or explicitly static)
+ *     → END (framing / camera position / subject position)
+ *     → DURATION
+ *
+ * Every line is omitted unless the filmmaker specified it. A start or end state
+ * is never inferred from the movement type.
+ */
+function temporalParagraph(spec: CinematicPromptSpec): string | undefined {
+  const m = spec.motion;
+
+  // Composition only appears here when it actually transitions — a stable
+  // composition is already stated once as a constant in the static block, and
+  // repeating it as an "opening" state would imply it is about to change.
+  const compositionTransitions = Boolean(v(m.finalComposition));
+
+  // Semicolons, not commas: values like "4m back, platform edge" contain commas
+  // of their own and would be unreadable in a comma-separated list.
+  // Labels stay capitalised so each group reads correctly whichever of its parts
+  // the filmmaker happened to specify first.
+  const startGroup = semicolonSentence([
+    v(m.initialFraming) && `Opening framing: ${v(m.initialFraming)}`,
+    compositionTransitions &&
+      v(spec.cinematography.composition) &&
+      `Opening composition: ${v(spec.cinematography.composition)}`,
+    v(m.cameraStartPosition) && `Camera starts at ${v(m.cameraStartPosition)}`,
+    v(m.subjectStartPosition) && `Subject starts at ${v(m.subjectStartPosition)}`,
+  ]);
+
+  const transitionGroup = sentences([
+    operationPhrase(spec),
+    v(m.subjectMovement) && `Subject movement: ${v(m.subjectMovement)}`,
+    v(spec.environment.movement) && `Environmental movement: ${v(spec.environment.movement)}`,
+  ]);
+
+  const endGroup = semicolonSentence([
+    v(m.finalFraming) && `Closing framing: ${v(m.finalFraming)}`,
+    v(m.finalComposition) && `Closing composition: ${v(m.finalComposition)}`,
+    v(m.cameraEndPosition) && `Camera ends at ${v(m.cameraEndPosition)}`,
+    v(m.subjectEndPosition) && `Subject ends at ${v(m.subjectEndPosition)}`,
+  ]);
+
+  const duration = v(m.durationSeconds);
 
   return sentences([
-    start && `Starting state: ${start}`,
-    cameraPhrase,
-    subject && `Subject movement: ${subject}`,
-    envMotion && `Environmental movement: ${envMotion}`,
-    end && `Ending state: ${end}`,
+    startGroup,
+    transitionGroup,
+    endGroup,
     duration !== undefined && `Duration: ${duration} seconds`,
   ]);
 }
