@@ -101,7 +101,10 @@ export function compileSpec(
       })),
       action: specified(scene?.action, "scene.action"),
       blocking: specified(shot.characterBlocking, "shot.characterBlocking"),
-      facing: specified(blocking?.subjectFacing, "shot.blocking.subjects"),
+      facing: specified(
+        blocking?.subjectFacings ?? blocking?.subjectFacing,
+        "shot.blocking.subjects"
+      ),
       wardrobe: specified(shot.wardrobe, "shot.wardrobe"),
       emotionalBeat: specified(scene?.emotionalBeat, "scene.emotionalBeat"),
     },
@@ -148,6 +151,7 @@ export function compileSpec(
 
       cameraStartPosition: specified(shot.cameraStartPosition, "shot.cameraStartPosition"),
       cameraEndPosition: specified(shot.cameraEndPosition, "shot.cameraEndPosition"),
+      cameraApproach: specified(blocking?.cameraApproach, "shot.blocking.cameraPath"),
 
       subjectMovement: specified(shot.subjectMovement, "shot.subjectMovement"),
       subjectStartPosition: specified(shot.subjectStartPosition, "shot.subjectStartPosition"),

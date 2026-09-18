@@ -139,6 +139,31 @@ locations, equipment, and budget tracking.
   it exists and the storyboard frame where it does not, so a scene plays through
   whether or not every shot has been generated.
 
+- **Camera blocking workspace** — the Phase 4 top-down canvas, grown into a
+  proper blocking tool. Camera and every character get an explicit **path**
+  (start → waypoints → end), not just a label: `cameraMovement = "Dolly In"`
+  says what kind of move it is, the path says where it actually goes, and
+  neither is derived from the other. Multiple characters, each with their own
+  position, facing and route. The **180° axis** is stated rather than assumed —
+  automatic, between two characters, along a character's direction of travel, or
+  drawn by hand — and crossing it raises a **warning, never a veto**, including
+  a crossing that happens only at a waypoint.
+
+  The frame previews beside the diagram are **projected from the camera's
+  geometry**: horizontal placement comes from its position, rotation and field
+  of view, so moving the camera moves the subject in frame with no second value
+  to drift. Subject size at the end of a move follows 1/distance from the size
+  set at the start — no assumption about anyone's height. Vertical placement and
+  eyeline stay the filmmaker's, because the diagram records neither camera nor
+  performer height.
+
+  Distances are stage units unless you state the stage's real size, and speed
+  appears only when there is **both** a drawn path and a stated duration — a
+  movement label like "Slow" is a feel, not a measurement. Blocking lives on
+  `ShotListItem.blocking` as before: one spatial record per shot, so a scene can
+  hold Shot 1 → Camera A and Shot 2 → Camera B with nothing shared. Version-1
+  blocking is upgraded on read rather than discarded.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
@@ -147,7 +172,7 @@ locations, equipment, and budget tracking.
   5. ✅ AI image generation driven by the compiler
   6. ✅ AI video previsualization + video provider adapters
   7. ✅ Timeline/edit view (shot clips, transitions, running duration)
-  8. Camera blocking diagram (draggable top-down 2D)
+  8. ✅ Camera blocking diagram (draggable top-down 2D)
   9. Continuity tracking + warnings across shots
   10. Prompt Studio UI (inspector, versions, per-provider tabs) + export package
 

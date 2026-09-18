@@ -71,6 +71,15 @@ export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElem
   );
 }
 
+/**
+ * A labelled form control.
+ *
+ * The control is nested inside the <label>, which associates the two implicitly:
+ * clicking the label focuses the input, and assistive technology reads them
+ * together. (A sibling <label> with no `htmlFor` looks right and announces
+ * nothing, which is what this used to be.) The label text is a <span> rather
+ * than the Label component because nesting <label> inside <label> is invalid.
+ */
 export function Field({
   label,
   hint,
@@ -81,11 +90,11 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div>
-      <Label>{label}</Label>
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
       {children}
-      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
-    </div>
+      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
+    </label>
   );
 }
 

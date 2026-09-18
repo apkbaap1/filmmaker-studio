@@ -139,6 +139,12 @@ export interface CinematicPromptSpec {
 
     cameraStartPosition: Maybe<string>;
     cameraEndPosition: Maybe<string>;
+    /**
+     * Whether the camera path ends nearer the subject than it began. Two
+     * distances compared on the blocking diagram — never read off the movement
+     * label, which says what kind of move it is rather than where it goes.
+     */
+    cameraApproach: Maybe<string>;
 
     subjectMovement: Maybe<string>;
     subjectStartPosition: Maybe<string>;
@@ -242,6 +248,10 @@ export interface BlockingContext {
    */
   framePlacement?: string;
   subjectFacing?: string;
+  /** Present only when the shot has more than one subject on the stage. */
+  subjectFacings?: string;
+  /** Set only when the camera actually moves and the change in distance is real. */
+  cameraApproach?: string;
   propLayers?: string;
 }
 

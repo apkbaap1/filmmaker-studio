@@ -68,6 +68,7 @@ export function ShotDesign({
   initialBlocking,
   subjectLabel,
   initialValues,
+  cameraHeightLabel,
 }: {
   projectId: string;
   sceneId: string;
@@ -75,6 +76,8 @@ export function ShotDesign({
   initialBlocking: ShotBlocking;
   subjectLabel: string;
   initialValues: TemporalValues;
+  /** The shot's own camera-height wording, shown on the diagram. Never written back. */
+  cameraHeightLabel?: string | null;
 }) {
   const [values, setValues] = useState<TemporalValues>(initialValues);
   const boundAction = updateShotTemporalAction.bind(null, projectId, sceneId, shotId);
@@ -95,6 +98,9 @@ export function ShotDesign({
         initialBlocking={initialBlocking}
         subjectLabel={subjectLabel}
         onPromoteComposition={(text) => set("composition")(text)}
+        cameraHeightLabel={cameraHeightLabel}
+        cameraMovementLabel={values.cameraMovement || null}
+        durationSeconds={values.durationSeconds ? Number(values.durationSeconds) : null}
       />
 
       <Card className="p-5">

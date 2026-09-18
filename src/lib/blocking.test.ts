@@ -32,12 +32,12 @@ describe("blocking persistence", () => {
 
   it("falls back to a default rather than throwing on a malformed blob", () => {
     const recovered = parseBlocking({ version: 99, nonsense: true }, "Ravi");
-    assert.equal(recovered.version, 1);
+    assert.equal(recovered.version, 2);
     assert.equal(recovered.subjects[0]?.label, "Ravi");
   });
 
   it("treats an absent blocking column as a fresh default", () => {
-    assert.equal(parseBlocking(null, "Ravi").version, 1);
+    assert.equal(parseBlocking(null, "Ravi").version, 2);
     assert.equal(parseBlocking(undefined).subjects[0]?.label, "Subject");
   });
 
@@ -59,8 +59,8 @@ describe("spatial derivations", () => {
     const blocking: ShotBlocking = {
       ...defaultBlocking(),
       subjects: [
-        { id: "a", label: "A", start: { x: 30, y: 40, orientation: 90 } },
-        { id: "b", label: "B", start: { x: 70, y: 40, orientation: 270 } },
+        { id: "a", label: "A", start: { x: 30, y: 40, orientation: 90 }, waypoints: [] },
+        { id: "b", label: "B", start: { x: 70, y: 40, orientation: 270 }, waypoints: [] },
       ],
     };
     const axis = axisLine(blocking);
@@ -84,8 +84,8 @@ describe("spatial derivations", () => {
     const base: ShotBlocking = {
       ...defaultBlocking(),
       subjects: [
-        { id: "a", label: "A", start: { x: 30, y: 50, orientation: 90 } },
-        { id: "b", label: "B", start: { x: 70, y: 50, orientation: 270 } },
+        { id: "a", label: "A", start: { x: 30, y: 50, orientation: 90 }, waypoints: [] },
+        { id: "b", label: "B", start: { x: 70, y: 50, orientation: 270 }, waypoints: [] },
       ],
       cameraStart: { x: 50, y: 80, rotation: 0, fov: 40 },
     };
@@ -114,7 +114,7 @@ describe("blocking → deterministic description", () => {
   function facing(orientation: number): string | undefined {
     const blocking: ShotBlocking = {
       ...defaultBlocking("Ravi"),
-      subjects: [{ id: "a", label: "Ravi", start: { x: 50, y: 40, orientation } }],
+      subjects: [{ id: "a", label: "Ravi", start: { x: 50, y: 40, orientation }, waypoints: [] }],
     };
     return describeSubjectFacing(blocking, "Ravi");
   }
@@ -157,7 +157,7 @@ describe("blocking → deterministic description", () => {
   it("does not fall back to a default layout when the stored blob is malformed", () => {
     // parseBlocking recovers a default so the page still opens; the compiler
     // path must not, because a recovered default is not a stated decision.
-    assert.equal(parseBlocking({ nonsense: true }, "Ravi").version, 1);
+    assert.equal(parseBlocking({ nonsense: true }, "Ravi").version, 2);
     assert.equal(deriveBlockingContext({ nonsense: true }, "Ravi"), undefined);
   });
 });
@@ -167,7 +167,7 @@ describe("blocking in the compiled prompt", () => {
 
   const placed: ShotBlocking = {
     ...defaultBlocking("Ravi"),
-    subjects: [{ id: "a", label: "Ravi", start: { x: 50, y: 40, orientation: 180 } }],
+    subjects: [{ id: "a", label: "Ravi", start: { x: 50, y: 40, orientation: 180 }, waypoints: [] }],
     props: [{ id: "p1", label: "Bench", x: 20, y: 70, layer: "foreground" }],
     frame: { subjectX: 20, subjectY: 50, subjectScale: 45, eyelineY: 33 },
   };

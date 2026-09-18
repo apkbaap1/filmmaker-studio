@@ -84,6 +84,7 @@ export default async function ShotDesignPage({
         shotId={shotId}
         initialBlocking={blocking}
         subjectLabel={subjectLabel}
+        cameraHeightLabel={shot.cameraHeight}
         initialValues={{
           composition: shot.composition ?? "",
           finalComposition: shot.finalComposition ?? "",

@@ -36,17 +36,25 @@ export function FrameView({
   overlays,
   onChange,
   onCommit,
+  readOnly = false,
 }: {
   blocking: ShotBlocking;
   subjectLabel: string;
   overlays: OverlayToggles;
   onChange: (next: ShotBlocking) => void;
   onCommit: () => void;
+  /**
+   * Set for the previews projected from the blocking diagram. Those values are
+   * derived from the camera's geometry, so dragging them would be editing a
+   * calculation — move the camera instead.
+   */
+  readOnly?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef<"subject" | "eyeline" | null>(null);
 
   function handleMove(event: ReactPointerEvent) {
+    if (readOnly) return;
     const mode = dragging.current;
     const svg = svgRef.current;
     if (!mode || !svg) return;
@@ -87,11 +95,12 @@ export function FrameView({
       {/* Subject */}
       <g
         onPointerDown={(e) => {
+          if (readOnly) return;
           e.preventDefault();
           dragging.current = "subject";
           (e.target as Element).setPointerCapture?.(e.pointerId);
         }}
-        className="cursor-grab"
+        className={readOnly ? undefined : "cursor-grab"}
       >
         <rect
           x={cx - subjectW / 2}
@@ -152,11 +161,12 @@ export function FrameView({
       {overlays.eyeline && (
         <g
           onPointerDown={(e) => {
+            if (readOnly) return;
             e.preventDefault();
             dragging.current = "eyeline";
             (e.target as Element).setPointerCapture?.(e.pointerId);
           }}
-          className="cursor-ns-resize"
+          className={readOnly ? undefined : "cursor-ns-resize"}
         >
           <line x1="0" y1={eyelineY} x2={W} y2={eyelineY} stroke="#fbbf24" strokeOpacity="0.85" strokeWidth="0.5" />
           <rect x="0" y={eyelineY - 2} width={W} height="4" fill="transparent" />

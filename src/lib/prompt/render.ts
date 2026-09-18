@@ -207,6 +207,7 @@ function temporalParagraph(spec: CinematicPromptSpec): string | undefined {
 
   const motion = sentences([
     operationPhrase(spec),
+    v(m.cameraApproach),
     v(m.subjectMovement) && `Subject movement: ${v(m.subjectMovement)}`,
     v(spec.environment.movement) && `Environmental movement: ${v(spec.environment.movement)}`,
   ]);

@@ -58,7 +58,7 @@ const TEST_SHOT: ShotInput = {
 
 const BLOCKING: ShotBlocking = {
   ...defaultBlocking("Ravi"),
-  subjects: [{ id: "s1", label: "Ravi", start: { x: 35, y: 45, orientation: 120 } }],
+  subjects: [{ id: "s1", label: "Ravi", start: { x: 35, y: 45, orientation: 120 }, waypoints: [] }],
   props: [{ id: "p1", label: "Platform bench", x: 20, y: 70, layer: "foreground" }],
   frame: { subjectX: 30, subjectY: 50, subjectScale: 55, eyelineY: 33 },
 };
