@@ -63,6 +63,19 @@ enum AssetSource {
  * null — never a dissolve or a match cut inferred from what the adjacent shots
  * happen to be. CUT is a real choice and is displayed as one.
  */
+/**
+ * What the filmmaker decided about a continuity finding.
+ * There is deliberately no "resolved" state: a finding is derived from the
+ * shots every time the panel loads, so a difference the filmmaker actually
+ * fixed stops being reported on its own. These record a judgement about a
+ * difference that is still there.
+ */
+enum ContinuityStatus {
+  REVIEWED
+  INTENTIONAL
+  DISMISSED
+}
+
 enum TransitionType {
   CUT
   DISSOLVE
@@ -120,17 +133,46 @@ model Project {
   ownerId String
   owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
-  members          ProjectMember[]
-  scenes           Scene[]
-  scheduleDays     ScheduleDay[]
-  castMembers      CastMember[]
-  crewMembers      CrewMember[]
-  locations        Location[]
-  equipmentItems   Equipment[]
-  budgetCategories BudgetCategory[]
-  assets           Asset[]
-  generations      Generation[]
-  sequences        Sequence[]
+  members             ProjectMember[]
+  scenes              Scene[]
+  scheduleDays        ScheduleDay[]
+  castMembers         CastMember[]
+  crewMembers         CrewMember[]
+  locations           Location[]
+  equipmentItems      Equipment[]
+  budgetCategories    BudgetCategory[]
+  assets              Asset[]
+  generations         Generation[]
+  sequences           Sequence[]
+  continuityDecisions ContinuityDecision[]
+}
+
+/**
+ * The filmmaker's judgement about one continuity difference.
+ * Continuity findings themselves are NOT stored. They are recomputed from the
+ * Shots, Scenes and blocking every time the panel is opened, so they can never
+ * go stale and analysing never writes to filmmaking data. Only the decision is
+ * persisted, attached by a deterministic `findingKey` that the analyser
+ * reproduces for the same difference between the same two shots.
+ * A decision therefore annotates a difference; it never removes it. Clear the
+ * decision and the finding is simply open again.
+ */
+model ContinuityDecision {
+  id         String           @id @default(cuid())
+  projectId  String
+  /**
+   * Stable identity of the difference: category, the two shots, and the subject.
+   */
+  findingKey String
+  status     ContinuityStatus
+  note       String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, findingKey])
+  @@index([projectId])
 }
 
 model ProjectMember {
@@ -207,9 +249,13 @@ model ShotListItem {
   // from camera and subject movement.
   environmentalMovement String?
 
-  // Costume/wardrobe. A continuity property: stated here so an image-to-video
-  // prompt can name it as something that must not change between frames.
-  wardrobe String?
+  // Continuity properties. Each is unspecified by default, and unspecified
+  // never means "absent" — continuity analysis compares stated values only.
+  wardrobe       String?
+  hairMakeup     String?
+  // Props the character carries or handles, as distinct from set dressing
+  // placed on the blocking stage.
+  characterProps String?
 
   // Composition. `composition` is spatial placement (subject on the left third)
   // and `framing` is shot scale (tight/loose) — two different things. Both are

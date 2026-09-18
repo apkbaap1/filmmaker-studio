@@ -54,8 +54,10 @@ export const shotSchema = z.object({
   // Movement in the environment itself, distinct from camera and subject movement
   environmentalMovement: z.string().max(500).optional().or(z.literal("")),
 
-  // Costume/wardrobe — a continuity property, not a motion one
+  // Continuity properties — each unspecified by default
   wardrobe: z.string().max(500).optional().or(z.literal("")),
+  hairMakeup: z.string().max(500).optional().or(z.literal("")),
+  characterProps: z.string().max(500).optional().or(z.literal("")),
 
   // Composition (spatial placement) and shot scale — separate axes
   composition: z.string().max(500).optional().or(z.literal("")),
@@ -252,4 +254,14 @@ export const assetMediaInfoSchema = z.object({
   durationSeconds: z.coerce.number().positive().max(36000).optional(),
   width: z.coerce.number().int().positive().max(16384).optional(),
   height: z.coerce.number().int().positive().max(16384).optional(),
+});
+
+/**
+ * A judgement about a continuity finding. It annotates the difference; it never
+ * edits the shots that produced it.
+ */
+export const continuityDecisionSchema = z.object({
+  findingKey: z.string().min(1).max(300),
+  status: z.enum(["REVIEWED", "INTENTIONAL", "DISMISSED"]),
+  note: z.string().max(1000).optional().or(z.literal("")),
 });

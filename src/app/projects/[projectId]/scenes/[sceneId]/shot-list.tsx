@@ -98,6 +98,8 @@ type Shot = {
   characterBlocking: string | null;
   environmentalMovement: string | null;
   wardrobe: string | null;
+  hairMakeup: string | null;
+  characterProps: string | null;
 
   composition: string | null;
   finalComposition: string | null;
@@ -274,12 +276,28 @@ function ShotFields({ defaultValues }: { defaultValues?: Partial<Shot> }) {
           </Field>
           <Field
             label="Wardrobe"
-            hint="Listed under PRESERVE when animating a frame, so costume stays put."
+            hint="Listed under PRESERVE when animating a frame, and compared across shots for continuity."
           >
             <Input
               name="wardrobe"
               defaultValue={defaultValues?.wardrobe ?? ""}
               placeholder="Charcoal overcoat, damp shoulders"
+            />
+          </Field>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Hair &amp; makeup" hint="Left blank means not stated — never &ldquo;none&rdquo;.">
+            <Input
+              name="hairMakeup"
+              defaultValue={defaultValues?.hairMakeup ?? ""}
+              placeholder="Wet hair pushed back, no makeup"
+            />
+          </Field>
+          <Field label="Props carried" hint="What the character holds, as opposed to set dressing.">
+            <Input
+              name="characterProps"
+              defaultValue={defaultValues?.characterProps ?? ""}
+              placeholder="Canvas holdall in left hand"
             />
           </Field>
         </div>

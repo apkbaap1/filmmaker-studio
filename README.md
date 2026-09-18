@@ -164,6 +164,32 @@ locations, equipment, and budget tracking.
   hold Shot 1 → Camera A and Shot 2 → Camera B with nothing shared. Version-1
   blocking is upgraded on read rather than discarded.
 
+- **Continuity** (`/projects/…/continuity`) — a read-only analysis layer over
+  the shots you already have. It compares consecutive shots within a scene, and
+  shots you placed next to each other in an edit; never every shot against every
+  other, so a DAY scene followed by a NIGHT scene raises nothing.
+
+  Two rules run through all of it. **Unspecified is never absent** — a blank
+  wardrobe field means you have not said yet, not that the coat is gone, and no
+  rule may fire from a value that was never stated. **A difference is never an
+  error** — shots are supposed to differ; findings are `INFO`, `REVIEW` or
+  `POTENTIAL ISSUE`, and each one says what changed, why it may matter and which
+  shots are involved.
+
+  Covers wardrobe, hair and makeup, props carried, character presence, location,
+  time of day, lighting, set props, the 180° axis across shots, screen direction,
+  eyeline and camera. Screen direction comes from the Phase 8 projection rather
+  than raw coordinates, and an axis the camera itself defines is skipped because
+  "which side is the camera on" has no answer there. Character and prop
+  timelines let you read the progression yourself; the prop timeline keeps
+  **present**, **absent** and **unspecified** as three different things.
+
+  Findings are *derived, never stored*: they are recomputed on every load, so a
+  difference you actually fix disappears on its own. Only your decision —
+  Reviewed, Intentional, Dismissed — is persisted, attached by the finding's
+  stable key, and it annotates the difference rather than deleting it. Nothing in
+  this feature writes a Shot, a Scene, blocking, the timeline or a prompt.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
@@ -173,7 +199,7 @@ locations, equipment, and budget tracking.
   6. ✅ AI video previsualization + video provider adapters
   7. ✅ Timeline/edit view (shot clips, transitions, running duration)
   8. ✅ Camera blocking diagram (draggable top-down 2D)
-  9. Continuity tracking + warnings across shots
+  9. ✅ Continuity tracking + warnings across shots
   10. Prompt Studio UI (inspector, versions, per-provider tabs) + export package
 
 ## Getting started
@@ -288,6 +314,8 @@ src/lib/shot-prompt.ts         DB ↔ compiler bridge (the only place a Shot bec
 src/lib/actions/generations.ts Structured image generation: queue, run, persist
 src/lib/actions/video-generations.ts  Video/image-to-video jobs: start, submit, poll
 src/lib/timeline.ts            Edit timing: source vs used duration, layout, split (pure)
+src/lib/continuity.ts          Continuity rules + timelines (pure, read-only)
+src/lib/actions/continuity.ts  Continuity decisions — the only writes this layer makes
 src/lib/actions/timeline.ts    Sequence/clip mutations — never writes a Shot field
 src/app/api/assets/[id]/file/  Authenticated file-serving route
 src/app/projects/[projectId]/  Project workspace: scenes, visualization,
