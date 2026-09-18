@@ -190,6 +190,37 @@ locations, equipment, and budget tracking.
   stable key, and it annotates the difference rather than deleting it. Nothing in
   this feature writes a Shot, a Scene, blocking, the timeline or a prompt.
 
+- **Prompt Studio** (`/projects/…/studio`) — the control centre over everything
+  above, and an interface rather than another store: every value it shows is
+  read from the Shots, recompiled by the compiler, or derived by the continuity
+  analyser.
+
+  Three layers are kept apart and never collapsed into one editable box:
+  **Layer 1** the Shot's structured choices, **Layer 2** the provider-independent
+  `CinematicPromptSpec`, **Layer 3** the rendered text — one rendering per mode
+  per adapter. Editing Layer 3 for a generation never touches Layer 1.
+
+  Per shot: Overview (shot, continuity, storyboard frame, timeline placement,
+  every take with the exact prompt that produced it), Image / Video /
+  Image→Video tabs with View · Edit · Copy · Save version · Reset to compiled,
+  a **Provider** tab listing only adapters that actually exist, and an
+  **Inspector** that prints real provenance — `85mm ← shot.focalLength` — from
+  the `{ value, from }` tags the compiler already records, claiming none where
+  none exists.
+
+  **Versions are append-only.** A later compilation never rewrites an edited
+  one; when a structured value changes, the Studio says so and offers both
+  *"use new compiled prompt"* and *"keep version N"*. Generations keep their own
+  copy of what was sent, so a take's history can never be altered by later
+  editing. **Compare** is a deterministic LCS word diff — no model, no network.
+
+  Project level adds filters (scene, prompt type, generation status, continuity)
+  and the **production export**: a structured **JSON** package, a **CSV** shot
+  breakdown, and a **PDF** production report. All three are built from one
+  package so they cannot disagree, they read the project without changing it,
+  and each states plainly which provider produced what — a stub is named as a
+  stub in the UI and in the exported documents.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
@@ -200,7 +231,7 @@ locations, equipment, and budget tracking.
   7. ✅ Timeline/edit view (shot clips, transitions, running duration)
   8. ✅ Camera blocking diagram (draggable top-down 2D)
   9. ✅ Continuity tracking + warnings across shots
-  10. Prompt Studio UI (inspector, versions, per-provider tabs) + export package
+  10. ✅ Prompt Studio UI (inspector, versions, per-provider tabs) + export package
 
 ## Getting started
 
@@ -315,6 +346,9 @@ src/lib/actions/generations.ts Structured image generation: queue, run, persist
 src/lib/actions/video-generations.ts  Video/image-to-video jobs: start, submit, poll
 src/lib/timeline.ts            Edit timing: source vs used duration, layout, split (pure)
 src/lib/continuity.ts          Continuity rules + timelines (pure, read-only)
+src/lib/diff.ts                Deterministic LCS prompt comparison (no LLM)
+src/lib/export/                Production export: package, CSV, PDF
+src/app/projects/[projectId]/studio/  Prompt Studio (project and shot level)
 src/lib/actions/continuity.ts  Continuity decisions — the only writes this layer makes
 src/lib/actions/timeline.ts    Sequence/clip mutations — never writes a Shot field
 src/app/api/assets/[id]/file/  Authenticated file-serving route
@@ -333,8 +367,8 @@ deployable:
 | **Asset storage** | Local disk (see below) | S3-compatible object storage with signed URLs |
 | **Video providers** | Adapter interface + labelled local stub | A real adapter once a platform is chosen |
 | **Generation jobs** | Driven by an open browser tab | A server-side worker/queue so jobs finish unattended |
-| **Prompt Studio** | Prompts shown and editable per shot | Inspector, versioning, per-provider tabs, export |
 | **Billing / quotas** | None | Provider spend tracking and limits |
+| **Export assets** | Exports reference asset ids; files stay on disk | Bundling media into a downloadable archive |
 | **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
 | **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |
 

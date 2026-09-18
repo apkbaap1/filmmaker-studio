@@ -265,3 +265,14 @@ export const continuityDecisionSchema = z.object({
   status: z.enum(["REVIEWED", "INTENTIONAL", "DISMISSED"]),
   note: z.string().max(1000).optional().or(z.literal("")),
 });
+
+/** A saved prompt draft. Long, because a compiled cinematic prompt is long. */
+export const promptVersionSchema = z.object({
+  mode: z.enum(["IMAGE", "VIDEO", "IMAGE_TO_VIDEO"]),
+  text: z
+    .string()
+    .min(3, "The prompt is empty — fill in some shot details first")
+    .max(6000)
+    .transform((value) => value.replace(/\r\n/g, "\n")),
+  label: z.string().max(120).optional().or(z.literal("")),
+});

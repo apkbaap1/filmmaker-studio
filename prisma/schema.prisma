@@ -70,6 +70,17 @@ enum AssetSource {
  * fixed stops being reported on its own. These record a judgement about a
  * difference that is still there.
  */
+/**
+ * Where a saved prompt's text came from.
+ * COMPILED is the compiler's output taken as-is; EDITED is the filmmaker's
+ * wording. The distinction is kept forever: a later compilation never rewrites
+ * an edited version, it becomes a new one alongside it.
+ */
+enum PromptSource {
+  COMPILED
+  EDITED
+}
+
 enum ContinuityStatus {
   REVIEWED
   INTENTIONAL
@@ -295,10 +306,11 @@ model ShotListItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  scene         Scene          @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  assets        Asset[]
-  generations   Generation[]
-  timelineClips TimelineClip[]
+  scene          Scene           @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  assets         Asset[]
+  generations    Generation[]
+  timelineClips  TimelineClip[]
+  promptVersions PromptVersion[]
 
   @@index([sceneId])
 }
@@ -442,6 +454,52 @@ model Generation {
   shot    ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+  @@index([shotId])
+}
+
+/**
+ * A saved prompt for one shot in one mode.
+ * Versions are the filmmaker's drafts; Generations are the actual uses. They are
+ * kept apart on purpose: a Generation already stores the exact text that was
+ * sent to a provider, so the record of what produced an asset can never be
+ * altered by later editing here. A version is never overwritten — saving again
+ * appends, so the history reads forwards.
+ * This holds no new filmmaking data. The Shot remains the source of truth, the
+ * spec is recompiled from it, and a version is a snapshot of one rendering.
+ */
+model PromptVersion {
+  id      String         @id @default(cuid())
+  shotId  String
+  mode    GenerationMode
+  /**
+   * Sequence within (shot, mode), starting at 1.
+   */
+  version Int
+  source  PromptSource
+
+  /**
+   * Exactly the text this version holds.
+   */
+  text             String
+  /**
+   * The CinematicPromptSpec at the moment it was saved, for the inspector.
+   */
+  specSnapshot     Json?
+  /**
+   * Which prompt adapter rendered it.
+   */
+  promptProviderId String?
+  /**
+   * For IMAGE_TO_VIDEO: the still this version was written against.
+   */
+  sourceAssetId    String?
+  label            String?
+
+  createdAt DateTime @default(now())
+
+  shot ShotListItem @relation(fields: [shotId], references: [id], onDelete: Cascade)
+
+  @@unique([shotId, mode, version])
   @@index([shotId])
 }
 

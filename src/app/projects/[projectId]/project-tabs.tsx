@@ -18,6 +18,7 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
     { href: `${base}/storyboard`, label: "Storyboard" },
     { href: `${base}/timeline`, label: "Timeline" },
     { href: `${base}/continuity`, label: "Continuity" },
+    { href: `${base}/studio`, label: "Prompt Studio" },
     { href: `${base}/schedule`, label: "Schedule" },
     { href: `${base}/cast-crew`, label: "Cast & Crew" },
     { href: `${base}/locations`, label: "Locations" },
