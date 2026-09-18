@@ -19,6 +19,7 @@ const { drainQueue } = await import("./worker.ts");
 const { localStubVideoProvider, resetStubJobs, stubJobCount } = await import(
   "../ai/video-providers/local-stub.ts"
 );
+const videoProviders = await import("../ai/video-providers/index.ts");
 const { localStubImageProvider } = await import("../ai/image-providers/local-stub.ts");
 
 /**
@@ -419,6 +420,54 @@ describe("asynchronous video jobs", () => {
     const asset = await prisma.asset.findUniqueOrThrow({ where: { id: done.assetId! } });
     assert.equal(asset.type, "VIDEO");
     assert.equal(asset.mimeType, "video/webm");
+
+    // Measured from the returned container by the worker, not reported by a
+    // browser later. The stub clip really is 256x144 and 1.906632s long.
+    assert.equal(asset.width, 256, "the clip's width was measured");
+    assert.equal(asset.height, 144, "the clip's height was measured");
+    assert.ok(asset.durationSeconds !== null, "the clip's duration was measured");
+    assert.ok(
+      Math.abs(asset.durationSeconds! - 1.906632) < 1e-4,
+      `duration was ${asset.durationSeconds}`
+    );
+  });
+
+  it("records no duration for a still, which has no time axis", async () => {
+    // The image path is unchanged by the video measurement work: it still
+    // measures width and height, and still leaves duration null rather than
+    // inventing a length for a frame.
+    const job = await queueJob({ mode: "IMAGE" });
+    await drainQueue({ workerId: "w1", projectId, db: prisma });
+
+    const done = await read(job.id);
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { id: done.assetId! } });
+    assert.equal(asset.type, "IMAGE");
+    assert.equal(asset.width, 64, "the stub image is 64x64");
+    assert.equal(asset.height, 64);
+    assert.equal(asset.durationSeconds, null, "a still has no duration");
+  });
+
+  it("fails a generation whose provider returns something that is not a video", async () => {
+    // The whole point of measuring: an HTML error page cannot become a clip.
+    const provider = videoProviders.getVideoProvider(localStubVideoProvider.id);
+    const realPoll = provider.poll.bind(provider);
+    provider.poll = async () => ({
+      status: "completed" as const,
+      video: { data: Buffer.from("<html><body>gateway error</body></html>"), mimeType: "video/webm" },
+    });
+
+    try {
+      const job = await queueJob({ mode: "VIDEO", providerId: localStubVideoProvider.id });
+      await drainQueue({ workerId: "w1", projectId, db: prisma });
+      await drainQueue({ workerId: "w1", projectId, db: prisma });
+
+      const done = await read(job.id);
+      assert.notEqual(done.status, "COMPLETED", "an HTML page must not complete a generation");
+      assert.equal(done.assetId, null, "no Asset may be created for it");
+      assert.match(done.error ?? "", /HTML page, not a video/);
+    } finally {
+      provider.poll = realPoll;
+    }
   });
 
   it("does not create a second provider job when polled repeatedly", async () => {

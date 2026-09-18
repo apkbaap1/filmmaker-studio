@@ -12,6 +12,7 @@ import {
 } from "@/lib/media";
 import { getImageProvider } from "@/lib/ai/image-providers";
 import { getVideoProvider } from "@/lib/ai/video-providers";
+import { InvalidVideoError, readVideoMetadata } from "@/lib/ai/video-metadata";
 import { GenerationError, classify, shouldRetry, type FailureKind } from "./state";
 import { releaseForRetry, updateLeased, type Lease, type Db } from "./queue";
 import type { PrismaClient } from "@prisma/client";
@@ -301,14 +302,36 @@ async function pollVideo(
     throw GenerationError.permanent(result.error);
   }
 
+  // Measured from the returned bytes, exactly as the image path measures a
+  // still. Until now a generated clip's width, height and duration stayed null
+  // until a browser happened to play it — so a clip nobody opened had no
+  // recorded length, and the timeline silently fell back to the shot's
+  // *intended* duration instead.
+  let measured;
+  try {
+    measured = readVideoMetadata(result.video.data);
+  } catch (error) {
+    // A provider that returns something unreadable will do so again: an HTML
+    // error page, a truncated download or a container this application cannot
+    // measure are all permanent as far as this job is concerned.
+    if (error instanceof InvalidVideoError) throw GenerationError.permanent(error.message);
+    throw error;
+  }
+
   return storeAndComplete(
     generation,
     lease,
     result.video.data,
-    result.video.mimeType,
+    // The container decides the type, not the provider's claim about it.
+    measured.mimeType,
     "VIDEO",
     now,
-    db
+    db,
+    {
+      width: measured.width,
+      height: measured.height,
+      durationSeconds: measured.durationSeconds ?? undefined,
+    }
   );
 }
 
@@ -363,11 +386,11 @@ async function storeAndComplete(
   now: Date,
   db: Db,
   /**
-   * Measured by the adapter from the returned bytes. Absent when the adapter
-   * could not determine them, in which case the Asset records null rather than
-   * a number nobody measured.
+   * Measured from the returned bytes. Absent when nothing could measure them,
+   * in which case the Asset records null rather than a number nobody measured.
+   * `durationSeconds` applies to video only; a still has no time axis.
    */
-  dimensions: { width?: number; height?: number } = {}
+  measured: { width?: number; height?: number; durationSeconds?: number } = {}
 ): Promise<StepOutcome> {
   let staged = stagedFrom(generation.stagedMedia);
   if (!staged) {
@@ -430,8 +453,9 @@ async function storeAndComplete(
         checksum: stored.checksum,
         mimeType: stored.mimeType,
         fileSize: stored.fileSize,
-        width: dimensions.width ?? null,
-        height: dimensions.height ?? null,
+        width: measured.width ?? null,
+        height: measured.height ?? null,
+        durationSeconds: measured.durationSeconds ?? null,
         prompt: generation.promptUsed,
       },
     });
@@ -465,8 +489,9 @@ async function storeAndComplete(
     // So a log line on its own distinguishes a paid external render from a local
     // placeholder, without the reader having to know which provider ids are which.
     providerKind: providerKindFor(generation),
-    width: dimensions.width,
-    height: dimensions.height,
+    width: measured.width,
+    height: measured.height,
+    durationSeconds: measured.durationSeconds,
   });
   return { kind: "completed", assetId };
 }
