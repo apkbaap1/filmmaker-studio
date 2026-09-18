@@ -45,3 +45,6 @@ next-env.d.ts
 
 # uploaded/generated visualization assets (local disk storage)
 /storage
+
+# Discovery output. Contains no credential, but it is a build artifact.
+artifacts/
