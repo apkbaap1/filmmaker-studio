@@ -4,14 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, ErrorText, Field, Select, Textarea } from "@/components/ui";
 import {
-  runGenerationAction,
+  cancelGenerationAction,
+  generationStatesAction,
+  retryGenerationAction,
   startShotImageGenerationAction,
 } from "@/lib/actions/generations";
-import {
-  pollVideoGenerationAction,
-  runVideoGenerationAction,
-  startShotVideoGenerationAction,
-} from "@/lib/actions/video-generations";
+import { startShotVideoGenerationAction } from "@/lib/actions/video-generations";
 import { GenerationCard, MODE_LABEL, type GenerationItem, type GenerationMode } from "./generation-card";
 
 export type SourceFrame = { id: string; label: string };
@@ -27,8 +25,11 @@ const BLURB: Record<GenerationMode, string> = {
     "Animates one of this shot's existing frames. The prompt is an explicit PRESERVE / ANIMATE contract: everything you stated as fixed is listed as fixed, and only motion you actually specified is listed as moving.",
 };
 
-/** How often an in-flight video job is re-checked. */
-const POLL_MS = 2500;
+/** How often the page asks the server what the worker has been doing. */
+const REFRESH_MS = 2500;
+
+/** States a worker is still going to act on. */
+const IN_FLIGHT = new Set(["QUEUED", "PROCESSING", "AWAITING_PROVIDER"]);
 
 /**
  * The generation surface for a shot: three modes over one compiler.
@@ -38,9 +39,14 @@ const POLL_MS = 2500;
  * submitted and recorded verbatim — switching tabs, regenerating, or reloading
  * never silently recompiles over an explicit edit.
  *
- * Video jobs are polled in the background. The page stays usable throughout, and
- * because the provider's job handle lives on the row rather than in this
- * component, a reload picks polling back up instead of losing the job.
+ * This component does not run generations. Clicking Generate writes a durable
+ * job and returns; a background worker submits it, polls the provider and stores
+ * the result. What is below is a *view* of those jobs, refreshed while any of
+ * them is still in flight.
+ *
+ * That is the whole point of Workstream 11.3: closing this tab, navigating away
+ * or losing the network does not affect a generation in the slightest, because
+ * the browser was never the thing carrying it.
  */
 export function ShotGeneration({
   projectId,
@@ -88,33 +94,36 @@ export function ShotGeneration({
       ? "Generate or upload an image for this shot first — image-to-video needs a source frame."
       : undefined;
 
-  // --- background polling for in-flight video jobs ---------------------------
-  // Driven by what the server rendered, so a reload resumes rather than orphans.
-  const inFlight = generations
-    .filter((g) => g.mode !== "IMAGE" && (g.status === "QUEUED" || g.status === "PROCESSING"))
-    .map((g) => g.id)
-    .join(",");
-  const polling = useRef(false);
+  // --- observing the worker -------------------------------------------------
+  // Refreshing a view, not driving a job. If this component never renders again,
+  // every generation below still finishes.
+  const inFlight = generations.filter((g) => IN_FLIGHT.has(g.status)).length;
+  const checking = useRef(false);
 
   useEffect(() => {
-    if (!inFlight) return;
-    const ids = inFlight.split(",");
+    if (inFlight === 0) return;
     const timer = setInterval(async () => {
-      if (polling.current) return;
-      polling.current = true;
+      if (checking.current) return;
+      checking.current = true;
       try {
-        const results = await Promise.all(
-          ids.map((id) => pollVideoGenerationAction(projectId, id))
+        const states = await generationStatesAction(projectId, shotId);
+        const settled = states.some(
+          (state) =>
+            !IN_FLIGHT.has(state.status) &&
+            generations.find((g) => g.id === state.id)?.status !== state.status
         );
-        if (results.some((r) => r.status === "COMPLETED" || r.status === "FAILED")) {
-          router.refresh();
-        }
+        // Also refresh when a job appears or disappears, so a worker finishing
+        // between renders is never missed.
+        if (settled || states.length !== generations.length) router.refresh();
+      } catch {
+        // A failed status check is not worth surfacing: the next tick retries,
+        // and nothing about the job depends on this request.
       } finally {
-        polling.current = false;
+        checking.current = false;
       }
-    }, POLL_MS);
+    }, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [inFlight, projectId, router]);
+  }, [inFlight, projectId, shotId, generations, router]);
 
   const generate = useCallback(
     async (text: string) => {
@@ -124,40 +133,25 @@ export function ShotGeneration({
         const formData = new FormData();
         formData.set("prompt", text);
 
-        if (mode === "IMAGE") {
-          const started = await startShotImageGenerationAction(
-            projectId,
-            sceneId,
-            shotId,
-            undefined,
-            formData
-          );
-          if (!started?.generationId) {
-            setError(started?.error ?? "Could not start the generation");
-            return;
-          }
-          router.refresh();
-          const result = await runGenerationAction(projectId, started.generationId);
-          if (result.error) setError(result.error);
-        } else {
-          const started = await startShotVideoGenerationAction(
-            projectId,
-            sceneId,
-            shotId,
-            mode,
-            mode === "IMAGE_TO_VIDEO" ? sourceAssetId : null,
-            undefined,
-            formData
-          );
-          if (!started?.generationId) {
-            setError(started?.error ?? "Could not start the generation");
-            return;
-          }
-          router.refresh();
-          // Returns as soon as the provider accepts the job; the poll loop above
-          // takes it from there, so this never holds the UI.
-          const result = await runVideoGenerationAction(projectId, started.generationId);
-          if (result.error) setError(result.error);
+        // Both paths do the same thing: write a queued job and stop. Nothing
+        // here waits for a provider, so the button comes back immediately even
+        // for a clip that will take minutes.
+        const started =
+          mode === "IMAGE"
+            ? await startShotImageGenerationAction(projectId, sceneId, shotId, undefined, formData)
+            : await startShotVideoGenerationAction(
+                projectId,
+                sceneId,
+                shotId,
+                mode,
+                mode === "IMAGE_TO_VIDEO" ? sourceAssetId : null,
+                undefined,
+                formData
+              );
+
+        if (!started?.generationId) {
+          setError(started?.error ?? "Could not queue the generation");
+          return;
         }
         router.refresh();
       } finally {
@@ -172,10 +166,22 @@ export function ShotGeneration({
       setError(undefined);
       setBusy(true);
       try {
-        const result =
-          generation.mode === "IMAGE"
-            ? await runGenerationAction(projectId, generation.id)
-            : await runVideoGenerationAction(projectId, generation.id);
+        const result = await retryGenerationAction(projectId, generation.id);
+        if (result.error) setError(result.error);
+        router.refresh();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [projectId, router]
+  );
+
+  const cancel = useCallback(
+    async (generation: GenerationItem) => {
+      setError(undefined);
+      setBusy(true);
+      try {
+        const result = await cancelGenerationAction(projectId, generation.id);
         if (result.error) setError(result.error);
         router.refresh();
       } finally {
@@ -305,6 +311,7 @@ export function ShotGeneration({
                 projectId={projectId}
                 generation={generation}
                 onRetry={retry}
+                onCancel={cancel}
               />
             ))}
           </div>

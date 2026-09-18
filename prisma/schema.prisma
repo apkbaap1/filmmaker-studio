@@ -107,11 +107,41 @@ enum TransitionType {
   L_CUT
 }
 
+/**
+ * The durable job lifecycle. Legal transitions live in src/lib/jobs/state.ts —
+ * this enum is only the vocabulary, not the rules.
+ *
+ * AWAITING_PROVIDER is the state that makes the worker non-blocking: the job has
+ * been handed to an asynchronous provider and is waiting to be polled, holding
+ * no worker and no lease in the meantime.
+ *
+ * CANCELLED is only reachable from QUEUED, before anything was submitted. There
+ * is deliberately no cancellation of an in-flight provider job: no adapter here
+ * can actually cancel one, and a button that only pretends to would be worse
+ * than none.
+ */
 enum GenerationStatus {
   QUEUED
   PROCESSING
+  AWAITING_PROVIDER
   COMPLETED
   FAILED
+  CANCELLED
+}
+
+/**
+ * Why a job failed, which decides whether it is retried.
+ *
+ * INDETERMINATE is the honest answer to one specific situation: the worker
+ * submitted to a provider and died before recording the job id, against a
+ * provider that offers no idempotency key and no job lookup. The submission may
+ * or may not have happened, so the job is neither retried (which could buy a
+ * second expensive generation) nor reported as a clean failure.
+ */
+enum GenerationFailureKind {
+  RETRYABLE
+  PERMANENT
+  INDETERMINATE
 }
 
 enum GenerationMode {
@@ -435,10 +465,64 @@ model Generation {
   promptProviderId String?
 
   /**
+   * Which model the adapter drove, recorded at submission so the audit trail
+   * survives a provider changing its default later. Never a credential.
+   */
+  model String?
+
+  /**
    * The provider's own job handle for an asynchronous generation (video).
    * Null for providers that return their result inline (image).
    */
   providerJobId String?
+
+  /**
+   * Stable across every retry of this job, so a provider that supports
+   * idempotency keys returns the same job instead of starting a second one.
+   */
+  idempotencyKey String @unique @default(cuid())
+
+  // --- durable job bookkeeping ---------------------------------------------
+
+  /**
+   * How many times a worker has claimed this job, and the ceiling. Counted on
+   * claim rather than on failure, so a worker that dies mid-job still burns an
+   * attempt and a poison job cannot loop forever.
+   */
+  attempts    Int @default(0)
+  maxAttempts Int @default(3)
+
+  /**
+   * Which worker holds this job and until when. The token is the concurrency
+   * control: every write a worker makes is conditional on it still matching, so
+   * a worker whose lease expired and was taken over cannot clobber the new
+   * owner's result.
+   */
+  leaseOwner     String?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+
+  /** When this job next becomes eligible — retry backoff and poll scheduling. */
+  nextAttemptAt DateTime?
+  lastAttemptAt DateTime?
+
+  /**
+   * Set immediately *before* the provider call, so a crash during submission is
+   * detectable afterwards. `submittedAt` is only set once the provider's job id
+   * is safely recorded.
+   */
+  submissionAttemptedAt DateTime?
+  submittedAt           DateTime?
+  completedAt           DateTime?
+
+  /**
+   * A storage key reserved before the bytes were written. It makes the
+   * store-then-record sequence recoverable: a retry rewrites the same key
+   * rather than orphaning a new object each time.
+   */
+  stagedMedia Json?
+
+  failureKind GenerationFailureKind?
 
   /**
    * Requested clip length, for the modes that have one.
@@ -466,6 +550,8 @@ model Generation {
 
   @@index([projectId])
   @@index([shotId])
+  /** The worker's claim query: eligible jobs, oldest first. */
+  @@index([status, nextAttemptAt])
 }
 
 /**

@@ -96,7 +96,14 @@ async function main(): Promise<void> {
     // it — a stray `next-server` holding the port makes the next run lie.
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: String(PORT) },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      // A production build refuses an untrusted Host header. The real deployment
+      // sets one of these too — see README > Deployment.
+      AUTH_TRUST_HOST: "true",
+      AUTH_URL: BASE,
+    },
   });
   server.stdout?.on("data", () => {});
   server.stderr?.on("data", (d) => process.env.VERBOSE && process.stderr.write(d));

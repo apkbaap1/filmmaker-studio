@@ -337,6 +337,8 @@ src/auth.ts, src/auth.config.ts   NextAuth setup (split for edge middleware)
 src/middleware.ts              Route protection
 src/lib/actions/*              Server actions (mutations) per module
 src/lib/validation.ts          Zod schemas shared by every form
+src/lib/jobs/                  Durable generation jobs: state machine, queue, runner, worker
+scripts/worker.ts              The worker process (npm run worker)
 src/lib/media.ts               Media authorization boundary (the only way to reach a byte)
 src/lib/storage/               Storage providers: interface, key policy, local disk, S3
 src/lib/ai/openai-image.ts     OpenAI image HTTP call (server-only; reads the key)
@@ -368,7 +370,7 @@ deployable:
 |---|---|---|
 | **Asset storage** | S3-compatible object storage, local disk in development | Configure `S3_*` and run `npm run storage:migrate` |
 | **Video providers** | Adapter interface + labelled local stub | A real adapter once a platform is chosen |
-| **Generation jobs** | Driven by an open browser tab | A server-side worker/queue so jobs finish unattended |
+| **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
 | **Billing / quotas** | None | Provider spend tracking and limits |
 | **Export assets** | Exports reference asset ids and storage keys | Bundling media into a downloadable archive |
 | **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
@@ -460,6 +462,115 @@ how long a leaked link stays useful, nothing more.
 Run `npm run verify:storage` against a built app to exercise all of this over
 real HTTP with two real users.
 
+## Background generation
+
+Generation does not run in the browser, and it does not run inside a request.
+Clicking Generate writes a durable job; a separate worker process does the work.
+Close the tab, lose the network, reboot the laptop — the generation finishes
+anyway, because nothing about it was ever living in the page.
+
+```
+npm run dev       # the web application
+npm run worker    # the generation worker — a separate process
+```
+
+Both are needed for a generation to complete. With no worker running, jobs simply
+queue up and the UI says so; start one and they drain.
+
+### The job
+
+There is no separate job table. A `Generation` **is** the job, and it carries its
+own lifecycle:
+
+```
+QUEUED ──claim──▶ PROCESSING ──▶ COMPLETED
+   │                  │
+   │                  ├──▶ AWAITING_PROVIDER ──poll──▶ PROCESSING
+   │                  ├──▶ QUEUED            (retryable failure, or lease expired)
+   │                  └──▶ FAILED ──retry──▶ QUEUED   (explicit, by a person)
+   └──▶ CANCELLED     (only before anything reached a provider)
+```
+
+The legal transitions live in `src/lib/jobs/state.ts`, along with *who* may make
+each one. Nothing a browser can do reaches COMPLETED: only a worker holding a
+valid lease can finish a job.
+
+### Why Postgres and not a queue broker
+
+The requirements are durable, restart-safe and multi-worker-safe. A committed row
+is durable; a lease that expires is restart-safe; a conditional `UPDATE` is
+multi-worker-safe. Redis, BullMQ or SQS would add an operational dependency and a
+second source of truth to buy nothing this application needs yet. If that changes,
+`src/lib/jobs/queue.ts` is the interface to reimplement, and nothing above it
+would move.
+
+### Claiming, leases and crashes
+
+A worker claims a job with a compare-and-swap on a lease token: it reads a
+candidate row, then updates it conditional on the token it saw. Two workers
+racing produce one winner and one no-op. Every later write the worker makes is
+conditional on the same token, so a worker that was merely *slow* cannot
+overwrite the result of the worker that took over from it.
+
+A worker that dies holds nothing: its lease simply expires, and the next worker
+picks the job up. There is no sweeper process and no liveness protocol — expiry
+is the whole mechanism. A long-running job stays alive by heartbeating, which is
+what distinguishes "slow" from "dead".
+
+### Retries
+
+Failures are classified, not counted blindly:
+
+| Kind | Meaning | Retried? |
+|---|---|---|
+| `RETRYABLE` | a timeout, a rate limit, a storage blip | yes, with exponential backoff, up to `maxAttempts` |
+| `PERMANENT` | a rejected prompt, an unsupported configuration, media we will not accept | no — it will fail identically |
+| `INDETERMINATE` | see below | no — a retry might cost real money |
+
+### The one window that cannot be closed
+
+A worker can submit to a provider and die before recording the provider's job id.
+Recovery depends on what the provider offers:
+
+- **An idempotency key** (`supportsIdempotencyKey`) — resubmitting is safe, and
+  the worker does exactly that.
+- **A job lookup** (`findJobByIdempotencyKey`) — the worker finds the existing
+  job and adopts it.
+- **Neither** — the submission may or may not have happened, and there is no way
+  to find out. The worker does **not** resubmit: the job is marked FAILED with
+  `INDETERMINATE`, and a person decides after checking the provider. This is a
+  real, unavoidable failure window, not a bug, and it is the reason an adapter
+  must not claim idempotency support it does not have.
+
+### Webhooks
+
+Not implemented. No provider here requires them, and a webhook endpoint that
+exists before something needs it is an unauthenticated hole with no test
+coverage. Polling is scheduled rather than blocking — a submitted job releases
+its worker and is re-claimed for a single poll later — so one worker can carry
+many in-flight generations.
+
+### Production topology
+
+```
+   Web application  ──┐
+                      ├──▶  PostgreSQL  ◀──  Worker (1..n)
+   Object storage  ◀──┘                          │
+          ▲                                      │
+          └──────────────────────────────────────┘
+```
+
+The worker needs the database, the storage configuration and the provider
+configuration. It needs no browser, no inbound port and no session. Run one or
+several; claiming is safe across processes and machines. Deploy it as a separate
+service (a second Railway/Fly process, an ECS service, a systemd unit) with the
+same environment as the web application.
+
+Set `WORKER_ID` if you want stable names in the logs; one is derived from the
+hostname and pid otherwise. `SIGTERM` stops it cleanly — it finishes the step in
+flight and stops claiming. Killing it outright is also safe: the lease expires
+and another worker continues.
+
 ## Deployment
 
 Deploy anywhere that runs Next.js (Vercel, Railway, Fly.io, etc.) with a
@@ -472,6 +583,9 @@ deploying. Without them the app falls back to local disk, which does not persist
 on Vercel's serverless functions and cannot be shared between instances
 anywhere. If you already have assets on local disk, run
 `npm run storage:migrate -- --apply` once the bucket is configured.
+
+**Run the worker too:** the web application alone will queue generations and
+never finish them. See "Background generation" above.
 
 **Auth behind a proxy:** a production build refuses an untrusted `Host` header.
 Set `AUTH_URL` to the app's public URL, or `AUTH_TRUST_HOST=true` if you

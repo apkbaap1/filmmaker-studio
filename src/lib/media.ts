@@ -1,6 +1,5 @@
 import "server-only";
 
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { storage, storageFor } from "@/lib/storage";
 import {
@@ -49,6 +48,13 @@ export type MediaAccess =
  * someone else, so the response cannot be used to discover which ids are real.
  */
 export async function authorizeAsset(assetId: string): Promise<MediaAccess> {
+  // Imported here rather than at the top of the file on purpose. `auth()` only
+  // means anything inside a request, and NextAuth cannot even load outside
+  // Next — so a module-level import would make this file, and everything that
+  // stores or reads media through it, impossible to use from the background
+  // worker or a test. The authorization rule is unchanged: this is still the
+  // only door, and it is still shut until a session is produced.
+  const { auth } = await import("@/auth");
   const session = await auth();
   if (!session?.user?.id) return { ok: false, status: 401 };
 
@@ -145,14 +151,18 @@ export interface StoredMedia {
 export async function storeProjectMedia(
   projectId: string,
   body: Buffer,
-  mimeType: string
+  mimeType: string,
+  options: { key?: string } = {}
 ): Promise<StoredMedia> {
   // The gate comes before the key and before the write: nothing unsupported or
   // oversized ever reaches a storage provider, whichever provider that is.
   assertStorableMedia(mimeType, body.byteLength);
 
   const provider = storage();
-  const key = buildAssetKey(projectId, mimeType);
+  // A caller may hand in a key it reserved earlier (see `reserveProjectMediaKey`)
+  // so that a write which is interrupted can be repeated against the same
+  // object instead of orphaning a new one on every attempt.
+  const key = options.key ? assertValidKey(options.key) : buildAssetKey(projectId, mimeType);
   const stored = await provider.put(key, body, { contentType: mimeType, size: body.byteLength });
 
   return {
@@ -162,6 +172,22 @@ export async function storeProjectMedia(
     fileSize: stored.size,
     checksum: stored.checksum,
   };
+}
+
+/**
+ * Picks the key an upload *will* use, without writing anything.
+ *
+ * This exists for the durable worker: it records the reserved key on the job
+ * before the bytes are written, so an interrupted write leaves a known location
+ * rather than an untracked object. Reserving costs nothing and creates nothing —
+ * an unused reservation is just a string nobody ever wrote to.
+ */
+export function reserveProjectMediaKey(
+  projectId: string,
+  mimeType: string
+): { storageProvider: StorageProviderId; storageKey: string } {
+  assertStorableMedia(mimeType, 0);
+  return { storageProvider: storage().id, storageKey: buildAssetKey(projectId, mimeType) };
 }
 
 /**

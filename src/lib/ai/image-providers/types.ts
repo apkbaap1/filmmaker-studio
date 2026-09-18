@@ -14,6 +14,12 @@ export interface ImageGenerationRequest {
   prompt: string;
   /** Provider-native size token, e.g. "1024x1024". Omitted means the adapter's default. */
   size?: string;
+  /**
+   * Stable across retries of one Generation. Image generation returns inline,
+   * so there is no job id to lose — but a provider that honours the key still
+   * spares the caller a second billed render after a mid-flight crash.
+   */
+  idempotencyKey?: string;
 }
 
 export interface GeneratedImage {
@@ -29,6 +35,13 @@ export interface ImageGenerationProvider {
    * key itself is read inside `generate` and never returned or logged.
    */
   model: string;
+  /**
+   * Whether `generate` honours `idempotencyKey`. Optional, and absent reads as
+   * false — the safe way round, so an adapter has to opt in deliberately rather
+   * than inherit a guarantee it does not offer.
+   */
+  supportsIdempotencyKey?: boolean;
+
   /** True when the server has the credentials this provider needs. */
   isConfigured(): boolean;
   generate(request: ImageGenerationRequest): Promise<GeneratedImage>;

@@ -1,4 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+// The stub's job store is a real directory now, so that a worker restart does
+// not silently erase the provider's state. Test files run in parallel
+// processes, so each one gets its own.
+process.env.VIDEO_STUB_DIR = mkdtempSync(path.join(tmpdir(), "stub-jobs-"));
 import { describe, it } from "node:test";
 
 import { defaultBlocking, deriveBlockingContext, type ShotBlocking } from "../blocking.ts";
@@ -478,6 +486,10 @@ describe("Phase 6 — video provider abstraction", () => {
       label: "Another",
       model: "m",
       capabilities: { imageToVideo: false, allowedDurationsSeconds: [4, 8] },
+      // Required rather than optional: an adapter has to state whether it can
+      // deduplicate a resubmission, because the worker's crash-recovery path
+      // depends on the answer.
+      supportsIdempotencyKey: false,
       isConfigured: () => true,
       async submit(request) {
         calls.push(request.prompt);

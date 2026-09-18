@@ -9,7 +9,10 @@ export type GenerationMode = "IMAGE" | "VIDEO" | "IMAGE_TO_VIDEO";
 export type GenerationItem = {
   id: string;
   mode: GenerationMode;
-  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  status: "QUEUED" | "PROCESSING" | "AWAITING_PROVIDER" | "COMPLETED" | "FAILED" | "CANCELLED";
+  failureKind: "RETRYABLE" | "PERMANENT" | "INDETERMINATE" | null;
+  attempts: number;
+  maxAttempts: number;
   source: "QUICK" | "STRUCTURED";
   promptUsed: string;
   promptEdited: boolean;
@@ -25,15 +28,39 @@ export type GenerationItem = {
 const STATUS_TONE = {
   QUEUED: "default",
   PROCESSING: "accent",
+  AWAITING_PROVIDER: "accent",
   COMPLETED: "green",
   FAILED: "red",
+  CANCELLED: "default",
 } as const;
 
+/**
+ * Worded from the filmmaker's point of view. "Queued" says the job is safe and
+ * waiting rather than that nothing is happening, which matters now that leaving
+ * the page is genuinely harmless.
+ */
 const STATUS_LABEL = {
   QUEUED: "Queued",
   PROCESSING: "Generating…",
+  AWAITING_PROVIDER: "With the provider…",
   COMPLETED: "Completed",
   FAILED: "Failed",
+  CANCELLED: "Cancelled",
+} as const;
+
+/** States a worker will still act on — nothing here needs the page to stay open. */
+const IN_FLIGHT = new Set(["QUEUED", "PROCESSING", "AWAITING_PROVIDER"]);
+
+/**
+ * What a failure means, in the filmmaker's terms. INDETERMINATE gets the longest
+ * explanation because it is the one where the honest answer is "we do not know",
+ * and a retry is a decision rather than a click.
+ */
+const FAILURE_NOTE = {
+  RETRYABLE: "This looked temporary, and it was retried automatically before giving up.",
+  PERMANENT: "The provider rejected this outright, so it was not retried.",
+  INDETERMINATE:
+    "A worker reached the provider but did not get confirmation back, and this provider cannot be asked whether the job exists. It was not retried, because that could start — and bill for — a second generation. Check the provider before retrying.",
 } as const;
 
 export const MODE_LABEL: Record<GenerationMode, string> = {
@@ -51,10 +78,12 @@ export function GenerationCard({
   projectId,
   generation,
   onRetry,
+  onCancel,
 }: {
   projectId: string;
   generation: GenerationItem;
   onRetry: (generation: GenerationItem) => void;
+  onCancel: (generation: GenerationItem) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -115,10 +144,28 @@ export function GenerationCard({
           </p>
         )}
 
+        {IN_FLIGHT.has(generation.status) && (
+          <p className="text-xs text-muted">
+            Running on the server. You can close this page — it will carry on without you.
+            {generation.attempts > 1 && ` Attempt ${generation.attempts} of ${generation.maxAttempts}.`}
+          </p>
+        )}
+
+        {generation.status === "FAILED" && generation.failureKind && (
+          <p className="text-xs text-muted">{FAILURE_NOTE[generation.failureKind]}</p>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {generation.status === "FAILED" && (
             <Button size="sm" variant="secondary" onClick={() => onRetry(generation)}>
               Retry this prompt
+            </Button>
+          )}
+          {/* Only offered where it is real: once a provider has the job, nothing
+              here can call it back, so no button pretends otherwise. */}
+          {generation.status === "QUEUED" && (
+            <Button size="sm" variant="ghost" onClick={() => onCancel(generation)}>
+              Cancel
             </Button>
           )}
           <Button
