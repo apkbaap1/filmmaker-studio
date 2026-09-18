@@ -14,7 +14,8 @@ import { describe, it } from "node:test";
 
 const SRC = path.resolve(import.meta.dirname, "..", "..");
 
-const SECRET_READ = /process\.env\.(OPENAI_API_KEY|AUTH_SECRET|DATABASE_URL)/;
+const SECRET_READ =
+  /process\.env\.(OPENAI_API_KEY|AUTH_SECRET|DATABASE_URL|S3_ACCESS_KEY_ID|S3_SECRET_ACCESS_KEY|MEDIA_URL_SECRET)/;
 const SERVER_ONLY = /^\s*import\s+["']server-only["']/m;
 const USE_CLIENT = /^\s*["']use client["']/;
 const USE_SERVER = /^\s*["']use server["']/;
@@ -174,6 +175,36 @@ describe("provider credentials stay server-side", () => {
       assert.ok(ui, `${name} moved — update this test`);
       assert.ok(ui.isClient, `${name} is a client component`);
       assert.ok(!/process\.env/.test(ui.source), `${name} must not read process.env`);
+    }
+  });
+
+  it("the storage credentials are only read inside the storage adapters", () => {
+    // Widening this list is the moment a credential could start leaking, so the
+    // set of files allowed to touch one is written down rather than inferred.
+    const allowed = [
+      path.join(SRC, "lib", "storage", "s3.ts"),
+      path.join(SRC, "lib", "storage", "local.ts"),
+    ];
+    const readers = [...modules.values()]
+      .filter((m) => /process\.env\.(S3_ACCESS_KEY_ID|S3_SECRET_ACCESS_KEY|MEDIA_URL_SECRET)/.test(m.source))
+      .map((m) => m.file)
+      .filter((file) => !allowed.includes(file))
+      .map(rel);
+
+    assert.deepEqual(readers, [], `storage credentials are read outside the adapters: ${readers}`);
+  });
+
+  it("the storage layer is only reachable from server code", () => {
+    for (const mod of modules.values()) {
+      if (!mod.isClient) continue;
+      const storageImports = mod.imports
+        .filter((i) => /lib\/storage\//.test(i) || /lib\/media\.ts$/.test(i))
+        .map(rel);
+      assert.deepEqual(
+        storageImports,
+        [],
+        `${rel(mod.file)} is a client component importing storage: ${storageImports}`
+      );
     }
   });
 

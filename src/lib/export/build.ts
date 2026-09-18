@@ -125,7 +125,8 @@ export async function buildExportPackage(projectId: string): Promise<ExportPacka
           width: a.width,
           height: a.height,
           createdAt: a.createdAt.toISOString(),
-          storagePath: a.filePath,
+          storageProvider: a.storageProvider,
+          storageKey: a.storageKey,
         })),
       };
     }),

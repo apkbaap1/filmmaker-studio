@@ -57,6 +57,17 @@ enum AssetSource {
 }
 
 /**
+ * Where an asset's bytes actually live.
+ * Recorded per asset rather than read from configuration, so local and
+ * object-stored media coexist while a migration runs and every object is read
+ * back through the provider that wrote it.
+ */
+enum StorageProvider {
+  LOCAL
+  S3
+}
+
+/**
  * Edit points the filmmaker can state on a timeline boundary.
  * There is deliberately no "unspecified" member: the field is nullable, and null
  * means the filmmaker has not chosen an edit. A plain boundary is rendered for
@@ -510,11 +521,21 @@ model Asset {
   shotId    String?
   type      AssetType
   source    AssetSource
-  filePath  String
-  mimeType  String
-  fileSize  Int
-  caption   String?
-  prompt    String?
+
+  /**
+   * Which store holds the bytes, and the opaque key inside it.
+   */
+  storageProvider StorageProvider @default(LOCAL)
+  storageKey      String
+  /**
+   * SHA-256 written at upload, so a migration can verify rather than assume.
+   */
+  checksum        String?
+
+  mimeType String
+  fileSize Int
+  caption  String?
+  prompt   String?
 
   /**
    * Media facts measured by the browser on first playback and reported back, so

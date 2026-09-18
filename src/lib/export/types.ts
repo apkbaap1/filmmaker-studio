@@ -116,8 +116,14 @@ export interface ExportAsset {
   width: number | null;
   height: number | null;
   createdAt: string;
-  /** Where the file sits inside the storage root. No absolute paths escape. */
-  storagePath: string;
+  /** Which backend holds the object — local disk in development, S3 in production. */
+  storageProvider: string;
+  /**
+   * The object's storage key. An opaque application-generated identifier, not a
+   * URL and not a credential: it names the object for an operator reconciling
+   * this bundle against a bucket, and confers no access on its own.
+   */
+  storageKey: string;
 }
 
 export interface ExportTimeline {

@@ -295,9 +295,10 @@ To use an OpenAI-compatible endpoint instead (Azure OpenAI, a gateway, a local
 stub), set `OPENAI_BASE_URL` as well — it defaults to
 `https://api.openai.com/v1`.
 
-Uploaded and generated files are saved to `./storage/uploads` on disk by
-default (configurable via `STORAGE_DIR`). See
-**"Storage: development-stage"** below before deploying anything.
+Uploaded and generated files go to local disk by default (`./storage/uploads`,
+configurable via `STORAGE_DIR`) and to S3-compatible object storage as soon as
+it is configured. See **"Storage"** below — local disk is a development
+backend, not a deployment target.
 
 ### 3b. (Optional) enable AI video previsualization
 
@@ -336,7 +337,8 @@ src/auth.ts, src/auth.config.ts   NextAuth setup (split for edge middleware)
 src/middleware.ts              Route protection
 src/lib/actions/*              Server actions (mutations) per module
 src/lib/validation.ts          Zod schemas shared by every form
-src/lib/storage.ts             Local-disk file storage for uploaded/generated assets
+src/lib/media.ts               Media authorization boundary (the only way to reach a byte)
+src/lib/storage/               Storage providers: interface, key policy, local disk, S3
 src/lib/ai/openai-image.ts     OpenAI image HTTP call (server-only; reads the key)
 src/lib/ai/image-providers/    Image provider registry + adapters (text → pixels)
 src/lib/ai/video-providers/    Video provider registry + adapters (text → async job)
@@ -364,11 +366,11 @@ deployable:
 
 | Area | State today | Needed for production |
 |---|---|---|
-| **Asset storage** | Local disk (see below) | S3-compatible object storage with signed URLs |
+| **Asset storage** | S3-compatible object storage, local disk in development | Configure `S3_*` and run `npm run storage:migrate` |
 | **Video providers** | Adapter interface + labelled local stub | A real adapter once a platform is chosen |
 | **Generation jobs** | Driven by an open browser tab | A server-side worker/queue so jobs finish unattended |
 | **Billing / quotas** | None | Provider spend tracking and limits |
-| **Export assets** | Exports reference asset ids; files stay on disk | Bundling media into a downloadable archive |
+| **Export assets** | Exports reference asset ids and storage keys | Bundling media into a downloadable archive |
 | **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
 | **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |
 
@@ -376,29 +378,87 @@ The timeline's data model is shaped so the last two are additive: `Sequence` and
 `TimelineClip` are proper entities, so markers, beat markers and audio tracks
 attach as new related tables rather than a rewrite.
 
-## Storage: development-stage
+## Storage
 
-> **This is not production infrastructure yet, and must not be deployed as-is.**
+Media lives behind a provider interface (`src/lib/storage/types.ts`). The
+application only ever knows about *objects addressed by a storage key* — never
+whether the bytes are on a disk, in S3, in R2 or anywhere else. Which backend is
+used is a configuration choice, not a code change.
 
-`src/lib/storage.ts` writes uploaded and generated files to the local
-filesystem. That is fine for `npm run dev` and for a single self-hosted box
-with a persistent disk. It is **not** a production design:
+### Development: local disk
 
-- it does not survive a serverless deploy (Vercel and friends have no
-  persistent filesystem, so uploads vanish between requests);
-- it does not survive a container being replaced or rescheduled;
-- it cannot be shared by more than one app instance, so it blocks horizontal
-  scaling;
-- it has no redundancy, no lifecycle policy and no CDN in front of it.
+With no `S3_*` variables set, uploads and generated media are written under
+`STORAGE_DIR` (default `./storage/uploads`). This exists so the application runs
+with no cloud credentials and so the test suite exercises the same interface
+production uses.
 
-Generated **video** makes this sharper than it was for stills: clips are large,
-and losing them loses work that cost real provider credits.
+> **Local disk is not production infrastructure.** It does not survive a
+> serverless deploy (Vercel and friends have no persistent filesystem), does not
+> survive a container being replaced, cannot be shared between app instances,
+> and has no redundancy, lifecycle policy or CDN. Generated **video** makes this
+> sharper than it was for stills: clips are large, and losing them loses work
+> that cost real provider credits.
 
-**Before any production deployment**, replace it with an S3-compatible object
-store (S3, R2, GCS, B2…) using signed URLs. The swap is deliberately contained:
-`saveUploadedFile` / `saveGeneratedImage` / `saveGeneratedVideo` /
-`readStoredFile` / `deleteStoredFile` are the entire surface area, plus the
-file-serving route at `src/app/api/assets/[assetId]/file/`.
+### Production: S3-compatible object storage
+
+Set these and the application stores new media in the bucket instead, with no
+other change:
+
+```
+S3_BUCKET="filmmaker-studio"
+S3_ACCESS_KEY_ID="..."
+S3_SECRET_ACCESS_KEY="..."
+S3_REGION="auto"
+S3_ENDPOINT="https://<account>.r2.cloudflarestorage.com"   # omit for AWS S3
+S3_FORCE_PATH_STYLE="true"                                  # MinIO and most S3-compatibles
+```
+
+Any S3-compatible store works — AWS S3, Cloudflare R2, Backblaze B2, MinIO,
+Wasabi. The adapter is verified against an S3-protocol server by
+`npm run verify:s3`; that proves the adapter speaks the protocol, **not** that
+any particular vendor accepts it. Point `S3_ENDPOINT` at your real bucket and
+re-run it before trusting a specific provider.
+
+The bucket should be **private**. Nothing in the application depends on public
+object URLs, and making the bucket public would move the access decision out of
+the application, which is exactly what the next section is about.
+
+### Migrating existing local files
+
+```
+npm run storage:migrate            # report: what would move, and where
+npm run storage:migrate -- --apply # upload, verify by checksum, then repoint
+```
+
+An Asset row is only repointed after the uploaded object has been read back out
+of the bucket and its SHA-256 matched. **Local files are never deleted** — the
+script prints which have become redundant and leaves removing them (and taking a
+backup first) to you. Re-running is safe.
+
+### How access is decided
+
+A storage key is **never** proof of anything. Every byte goes through
+`src/lib/media.ts`, in this order and only this order:
+
+    signed-in user
+      → does this Asset exist
+      → does its Project grant this user access
+      → only now, a short-lived URL or a read of the object
+
+`signedUrlForAsset`, `readAssetBytes` and `readAssetRange` take an
+`AuthorizedAsset`, a type only `authorizeAsset` produces, so it is not possible
+to serve an asset without having checked project access first. An asset id
+belonging to someone else returns a 404 indistinguishable from one that does not
+exist.
+
+In development, a "signed URL" is a real HMAC over the key and an expiry
+pointing at `/api/media`, so the interface behaves the same as it does in
+production; in production it is a presigned S3 URL. Neither is the authorization
+boundary — both are issued only after the check above, and their expiry limits
+how long a leaked link stays useful, nothing more.
+
+Run `npm run verify:storage` against a built app to exercise all of this over
+real HTTP with two real users.
 
 ## Deployment
 
@@ -407,8 +467,13 @@ PostgreSQL database attached. Set `DATABASE_URL` and `AUTH_SECRET` as
 environment variables, then run `npx prisma migrate deploy` before starting
 the app.
 
-**Storage first:** see "Storage: development-stage" above. Local-disk storage
-does not persist on Vercel's serverless functions and cannot be shared between
-instances anywhere. Use a host with a persistent disk (Railway, Fly.io, a VPS)
-for Visualization to work at all, and swap in object storage before this is
-anything but a development deployment.
+**Storage:** configure the `S3_*` variables (see "Storage" above) before
+deploying. Without them the app falls back to local disk, which does not persist
+on Vercel's serverless functions and cannot be shared between instances
+anywhere. If you already have assets on local disk, run
+`npm run storage:migrate -- --apply` once the bucket is configured.
+
+**Auth behind a proxy:** a production build refuses an untrusted `Host` header.
+Set `AUTH_URL` to the app's public URL, or `AUTH_TRUST_HOST=true` if you
+terminate TLS in front of it. Without one of these, sign-in returns
+"There was a problem with the server configuration".

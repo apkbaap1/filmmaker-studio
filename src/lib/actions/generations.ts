@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
 import { scopedTo } from "@/lib/authz";
-import { saveGeneratedImage } from "@/lib/storage";
+import { storeProjectMedia } from "@/lib/media";
 import { compileShotImagePrompt } from "@/lib/shot-prompt";
 import { DEFAULT_IMAGE_PROVIDER_ID, getImageProvider } from "@/lib/ai/image-providers";
 import { DEFAULT_PROVIDER_ID } from "@/lib/prompt";
@@ -104,7 +104,7 @@ export async function runGenerationAction(
 
   try {
     const image = await provider.generate({ prompt: generation.promptUsed });
-    const saved = await saveGeneratedImage(projectId, image.data, image.mimeType);
+    const saved = await storeProjectMedia(projectId, image.data, image.mimeType);
 
     const asset = await prisma.asset.create({
       data: {
@@ -113,7 +113,9 @@ export async function runGenerationAction(
         shotId: generation.shotId,
         type: "IMAGE",
         source: "GENERATED",
-        filePath: saved.filePath,
+        storageProvider: saved.storageProvider,
+        storageKey: saved.storageKey,
+        checksum: saved.checksum,
         mimeType: saved.mimeType,
         fileSize: saved.fileSize,
         prompt: generation.promptUsed,

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
 import { scopedTo } from "@/lib/authz";
 import { assetUploadSchema, generateImageSchema } from "@/lib/validation";
-import { deleteStoredFile, saveGeneratedImage, saveUploadedFile } from "@/lib/storage";
+import { deleteStoredMedia, storeProjectMedia } from "@/lib/media";
 import { generateImage } from "@/lib/ai/openai-image";
 
 export type FormState = { error?: string } | undefined;
@@ -40,7 +40,10 @@ export async function uploadAssetAction(
 
   let saved;
   try {
-    saved = await saveUploadedFile(projectId, file);
+    // The key is derived from the project and the verified MIME type inside
+    // `storeProjectMedia` — never from `file.name`, so an uploaded filename
+    // cannot choose where the object lands.
+    saved = await storeProjectMedia(projectId, Buffer.from(await file.arrayBuffer()), file.type);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Upload failed" };
   }
@@ -52,7 +55,9 @@ export async function uploadAssetAction(
       shotId: scope.shotId ?? null,
       type: parsed.data.type,
       source: "UPLOADED",
-      filePath: saved.filePath,
+      storageProvider: saved.storageProvider,
+      storageKey: saved.storageKey,
+      checksum: saved.checksum,
       mimeType: saved.mimeType,
       fileSize: saved.fileSize,
       caption: parsed.data.caption || null,
@@ -86,7 +91,12 @@ export async function generateImageAction(
     return { error: err instanceof Error ? err.message : "Image generation failed" };
   }
 
-  const saved = await saveGeneratedImage(projectId, buffer);
+  let saved;
+  try {
+    saved = await storeProjectMedia(projectId, buffer, "image/png");
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not store the generated image" };
+  }
 
   await prisma.asset.create({
     data: {
@@ -95,7 +105,9 @@ export async function generateImageAction(
       shotId: scope.shotId ?? null,
       type: "IMAGE",
       source: "GENERATED",
-      filePath: saved.filePath,
+      storageProvider: saved.storageProvider,
+      storageKey: saved.storageKey,
+      checksum: saved.checksum,
       mimeType: saved.mimeType,
       fileSize: saved.fileSize,
       caption: parsed.data.caption || null,
@@ -114,7 +126,9 @@ export async function deleteAssetAction(projectId: string, assetId: string) {
   if (!asset) return;
 
   await prisma.asset.deleteMany({ where: { id: assetId, ...scopedTo.asset(projectId) } });
-  await deleteStoredFile(asset.filePath);
+  // The row is gone first: an object with no row is a reconcilable orphan, a
+  // row with no object is a broken asset the filmmaker can see.
+  await deleteStoredMedia(asset.storageProvider, asset.storageKey);
 
   revalidateScope(projectId, asset.sceneId ?? undefined);
 }

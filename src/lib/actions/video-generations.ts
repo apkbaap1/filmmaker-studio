@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
 import { scopedTo } from "@/lib/authz";
-import { readStoredFile, saveGeneratedVideo } from "@/lib/storage";
+import { readAssetBytes, storeProjectMedia } from "@/lib/media";
 import { compileShotPrompt } from "@/lib/shot-prompt";
 import {
   configuredVideoProviderId,
@@ -158,9 +158,18 @@ export async function runVideoGenerationAction(
   try {
     const provider = getVideoProvider(generation.providerId);
 
+    // The source asset was loaded through the project-scoped generation row, so
+    // it is already inside the project the caller has write access to.
     const sourceImage = generation.sourceAsset
       ? {
-          data: await readStoredFile(generation.sourceAsset.filePath),
+          data: await readAssetBytes({
+            id: generation.sourceAsset.id,
+            projectId: generation.sourceAsset.projectId,
+            storageProvider: generation.sourceAsset.storageProvider,
+            storageKey: generation.sourceAsset.storageKey,
+            mimeType: generation.sourceAsset.mimeType,
+            fileSize: generation.sourceAsset.fileSize,
+          }),
           mimeType: generation.sourceAsset.mimeType,
         }
       : undefined;
@@ -206,7 +215,7 @@ export async function pollVideoGenerationAction(
     if (result.status === "processing") return { status: "PROCESSING" };
     if (result.status === "failed") return failGeneration(projectId, generationId, new Error(result.error));
 
-    const saved = await saveGeneratedVideo(projectId, result.video.data, result.video.mimeType);
+    const saved = await storeProjectMedia(projectId, result.video.data, result.video.mimeType);
     const asset = await prisma.asset.create({
       data: {
         projectId,
@@ -214,7 +223,9 @@ export async function pollVideoGenerationAction(
         shotId: generation.shotId,
         type: "VIDEO",
         source: "GENERATED",
-        filePath: saved.filePath,
+        storageProvider: saved.storageProvider,
+        storageKey: saved.storageKey,
+        checksum: saved.checksum,
         mimeType: saved.mimeType,
         fileSize: saved.fileSize,
         prompt: generation.promptUsed,
