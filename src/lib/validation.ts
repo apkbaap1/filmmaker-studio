@@ -220,3 +220,36 @@ export const generationPromptSchema = z.object({
     .max(6000)
     .transform((text) => text.replace(/\r\n/g, "\n")),
 });
+
+// --- Timeline / edit view ---------------------------------------------------
+// These validate *placement* data only. There is deliberately no schema here
+// that can write a ShotListItem field: the timeline never edits the shot.
+
+export const sequenceSchema = z.object({
+  name: z.string().min(1, "Name the edit").max(120),
+  notes: z.string().max(2000).optional().or(z.literal("")),
+});
+
+export const clipTrimSchema = z
+  .object({
+    inPointSeconds: z.coerce.number().min(0).max(36000),
+    outPointSeconds: z.coerce.number().min(0).max(36000).nullable(),
+  })
+  .refine(
+    (t) => t.outPointSeconds === null || t.outPointSeconds > t.inPointSeconds,
+    { message: "The out point must come after the in point", path: ["outPointSeconds"] }
+  );
+
+export const clipTransitionSchema = z.object({
+  // null is "not specified" — a plain boundary. CUT is an explicit choice.
+  transition: z
+    .enum(["CUT", "DISSOLVE", "FADE", "MATCH_CUT", "J_CUT", "L_CUT"])
+    .nullable(),
+  durationSeconds: z.coerce.number().min(0).max(30).nullable(),
+});
+
+export const assetMediaInfoSchema = z.object({
+  durationSeconds: z.coerce.number().positive().max(36000).optional(),
+  width: z.coerce.number().int().positive().max(16384).optional(),
+  height: z.coerce.number().int().positive().max(16384).optional(),
+});

@@ -56,6 +56,22 @@ enum AssetSource {
   GENERATED
 }
 
+/**
+ * Edit points the filmmaker can state on a timeline boundary.
+ * There is deliberately no "unspecified" member: the field is nullable, and null
+ * means the filmmaker has not chosen an edit. A plain boundary is rendered for
+ * null — never a dissolve or a match cut inferred from what the adjacent shots
+ * happen to be. CUT is a real choice and is displayed as one.
+ */
+enum TransitionType {
+  CUT
+  DISSOLVE
+  FADE
+  MATCH_CUT
+  J_CUT
+  L_CUT
+}
+
 enum GenerationStatus {
   QUEUED
   PROCESSING
@@ -114,6 +130,7 @@ model Project {
   budgetCategories BudgetCategory[]
   assets           Asset[]
   generations      Generation[]
+  sequences        Sequence[]
 }
 
 model ProjectMember {
@@ -232,11 +249,85 @@ model ShotListItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  scene       Scene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  assets      Asset[]
-  generations Generation[]
+  scene         Scene          @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  assets        Asset[]
+  generations   Generation[]
+  timelineClips TimelineClip[]
 
   @@index([sceneId])
+}
+
+/**
+ * An edit — a named, ordered arrangement of the project's shots.
+ * A sequence owns *placements*, not shots. Nothing about a shot is copied in
+ * here: a TimelineClip points at its ShotListItem and reads the filmmaking data
+ * from it, so there is exactly one representation of a shot in the system and
+ * the timeline can never drift from the Shot Builder.
+ * Future edit metadata (markers, beat markers, audio/dialogue/SFX/music tracks)
+ * attaches as new tables related to Sequence or TimelineClip. Because both are
+ * real entities rather than a blob, that is additive — no rewrite.
+ */
+model Sequence {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String   @default("Main edit")
+  order     Int      @default(0)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clips   TimelineClip[]
+
+  @@index([projectId])
+}
+
+/**
+ * One placement of a shot in a sequence.
+ * Everything here is an *edit* decision, kept strictly apart from the shot's own
+ * filmmaking decisions:
+ * Shot.durationSeconds        what the shot is meant to be — never written here
+ * inPoint / outPoint          how much of it this edit actually uses
+ * Trimming a clip to 3.5s leaves a 6-second shot a 6-second shot. Deleting a
+ * clip removes the placement and leaves the ShotListItem untouched, so the shot
+ * can be reinserted later.
+ */
+model TimelineClip {
+  id         String @id @default(cuid())
+  sequenceId String
+  shotId     String
+  order      Int    @default(0)
+
+  /**
+   * Trim, in seconds from the head of the source. `outPointSeconds` null means
+   * "run to the end of the source" rather than a stored copy of its length.
+   */
+  inPointSeconds  Float  @default(0)
+  outPointSeconds Float?
+
+  /**
+   * The edit at this clip's head. Null is "not specified" and renders as a plain
+   * boundary; it is not the same as an explicit CUT.
+   */
+  transition                TransitionType?
+  transitionDurationSeconds Float?
+
+  /**
+   * Which generated/uploaded asset represents this shot in this edit.
+   */
+  selectedAssetId String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sequence      Sequence     @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  shot          ShotListItem @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  selectedAsset Asset?       @relation("ClipSelectedAsset", fields: [selectedAssetId], references: [id], onDelete: SetNull)
+
+  @@index([sequenceId])
+  @@index([shotId])
 }
 
 /**
@@ -320,16 +411,30 @@ model Asset {
   fileSize  Int
   caption   String?
   prompt    String?
-  createdAt DateTime    @default(now())
 
-  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  scene      Scene?        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  shot       ShotListItem? @relation(fields: [shotId], references: [id], onDelete: Cascade)
-  generation Generation?   @relation("GenerationOutput")
+  /**
+   * Media facts measured by the browser on first playback and reported back, so
+   * the timeline can show a clip's real length and resolution. Null until a
+   * player has actually decoded the file — never guessed from the container.
+   */
+  durationSeconds Float?
+  width           Int?
+  height          Int?
+
+  createdAt DateTime @default(now())
+
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene           Scene?         @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  shot            ShotListItem?  @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  generation      Generation?    @relation("GenerationOutput")
   /**
    * Generations that animated this asset as their source frame.
    */
-  animatedBy Generation[]  @relation("GenerationSource")
+  animatedBy      Generation[]   @relation("GenerationSource")
+  /**
+   * Timeline placements that use this asset to represent their shot.
+   */
+  selectedInClips TimelineClip[] @relation("ClipSelectedAsset")
 
   @@index([projectId])
   @@index([sceneId])

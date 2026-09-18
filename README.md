@@ -118,6 +118,27 @@ locations, equipment, and budget tracking.
   exercises the pipeline end to end for development and tests. Nothing in the
   codebase drives Seedance, Veo, Higgsfield or Runway, and nothing claims to.
 
+- **Timeline / edit view** (`/projects/…/timeline`) — arrange the shots you
+  already have into an edit and watch the scene play through. A *sequence* owns
+  *placements*, not shots: every clip carries a `shotId` and reads its camera
+  data, storyboard frame and generations from the shot itself, so the timeline
+  can never drift from the Shot Builder. Horizontal ruler with timecode, scene
+  bands, clip blocks with thumbnails, a scrubable playhead, zoom, drag-to-
+  reorder, split at the playhead, and a clip inspector.
+
+  The distinction the whole view turns on: **a shot's intended duration and a
+  clip's used duration are different things.** Trimming a 6-second shot to 3.5
+  seconds writes `inPointSeconds` / `outPointSeconds` on the *placement* — the
+  shot is still a 6-second shot, and the inspector says so when a generated clip
+  measures something different. Removing a clip removes the placement; the shot
+  stays in the project with everything attached and can be reinserted.
+
+  Edit points (cut, dissolve, fade, match cut, J-cut, L-cut) are stated, never
+  inferred: an unset boundary renders as a plain cut with no marker, and is a
+  different value from an explicit **Cut**. Playback runs generated video where
+  it exists and the storyboard frame where it does not, so a scene plays through
+  whether or not every shot has been generated.
+
   Previsualization roadmap:
   1. ✅ Scene & Shot Builder (structured data model)
   2. ✅ Storyboard view: chronological panel grid, drag-drop reorder
@@ -125,7 +146,7 @@ locations, equipment, and budget tracking.
   4. ✅ Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
   5. ✅ AI image generation driven by the compiler
   6. ✅ AI video previsualization + video provider adapters
-  7. Timeline/edit view (shot clips, transitions, running duration)
+  7. ✅ Timeline/edit view (shot clips, transitions, running duration)
   8. Camera blocking diagram (draggable top-down 2D)
   9. Continuity tracking + warnings across shots
   10. Prompt Studio UI (inspector, versions, per-provider tabs) + export package
@@ -241,11 +262,32 @@ src/lib/prompt/                Prompt compiler: IR, renderers, prompt adapters
 src/lib/shot-prompt.ts         DB ↔ compiler bridge (the only place a Shot becomes a prompt)
 src/lib/actions/generations.ts Structured image generation: queue, run, persist
 src/lib/actions/video-generations.ts  Video/image-to-video jobs: start, submit, poll
+src/lib/timeline.ts            Edit timing: source vs used duration, layout, split (pure)
+src/lib/actions/timeline.ts    Sequence/clip mutations — never writes a Shot field
 src/app/api/assets/[id]/file/  Authenticated file-serving route
 src/app/projects/[projectId]/  Project workspace: scenes, visualization,
                                 schedule, cast-crew, locations, equipment,
                                 budget
 ```
+
+## Not production-ready yet
+
+Deliberately out of scope so far, and each one is real work before this is
+deployable:
+
+| Area | State today | Needed for production |
+|---|---|---|
+| **Asset storage** | Local disk (see below) | S3-compatible object storage with signed URLs |
+| **Video providers** | Adapter interface + labelled local stub | A real adapter once a platform is chosen |
+| **Generation jobs** | Driven by an open browser tab | A server-side worker/queue so jobs finish unattended |
+| **Prompt Studio** | Prompts shown and editable per shot | Inspector, versioning, per-provider tabs, export |
+| **Billing / quotas** | None | Provider spend tracking and limits |
+| **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
+| **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |
+
+The timeline's data model is shaped so the last two are additive: `Sequence` and
+`TimelineClip` are proper entities, so markers, beat markers and audio tracks
+attach as new related tables rather than a rewrite.
 
 ## Storage: development-stage
 
