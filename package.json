@@ -14,7 +14,8 @@
     "verify:migration": "node --experimental-strip-types --conditions=react-server scripts/verify-migration.ts",
     "worker": "node --experimental-strip-types --conditions=react-server --import ./scripts/alias-hooks.mjs scripts/worker.ts",
     "verify:jobs": "node --experimental-strip-types --conditions=react-server --import ./scripts/alias-hooks.mjs scripts/verify-durable-jobs.ts",
-    "verify:image-provider": "node --experimental-strip-types --conditions=react-server --import ./scripts/alias-hooks.mjs scripts/verify-image-provider.ts"
+    "verify:image-provider": "node --experimental-strip-types --conditions=react-server --import ./scripts/alias-hooks.mjs scripts/verify-image-provider.ts",
+    "verify:real-generation": "node --experimental-strip-types --conditions=react-server --import ./scripts/alias-hooks.mjs scripts/verify-real-generation.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

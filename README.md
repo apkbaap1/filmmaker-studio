@@ -559,12 +559,28 @@ The adapter is verified against a local server speaking the OpenAI Images
 protocol (`npm run verify:image-provider`, 40 checks), plus 41 unit tests over
 request construction, response validation and error classification.
 
-**It has not been run against the live OpenAI API.** No credential exists in this
-environment, and its network policy denies egress to `api.openai.com`. Those
-checks prove this application's half of the conversation is correct; they are
-not evidence that the live service behaves as documented. To close that gap: set
-`OPENAI_API_KEY`, allow egress, and run the verification with `OPENAI_BASE_URL`
-unset.
+**It has not been run against the live OpenAI API.** Status:
+**REAL PROVIDER INTEGRATION IMPLEMENTED — EXTERNAL VERIFICATION PENDING.**
+
+To close that gap, set `OPENAI_API_KEY`, allow outbound HTTPS to
+`api.openai.com`, leave `OPENAI_BASE_URL` unset, and run:
+
+```
+npm run build && npm run verify:real-generation
+```
+
+That performs exactly **one** genuine, billed generation from Shot 12 and records
+the evidence — provider, model, timestamps, generation id, asset id, MIME type,
+measured dimensions, file size and checksum — then re-reads it for persistence
+and checks a second user cannot reach any of it.
+
+It **cannot be satisfied by a mock**: it aborts unless the adapter is pointed at
+`api.openai.com`, so a pass cannot have come from anything else. It also refuses
+to start without a credential, if the credential appears in any client bundle, if
+the provider is unreachable (a proxy's 403 on CONNECT is reported as the egress
+denial it is, not mistaken for the provider answering), or if the application's
+own generation limits would refuse the request. Nothing is generated and nothing
+is billed unless every precondition passes.
 
 ## Background generation
 
