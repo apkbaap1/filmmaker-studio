@@ -19,10 +19,12 @@
  * One image. It refuses to loop, refuses to retry the provider call, and checks
  * the application's own generation limits before asking for anything.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { PrismaClient } from "@prisma/client";
+import { verifyAfterGeneration } from "./verify-after-generation.ts";
 
+/** The only host this verification will accept. Anything else and it refuses. */
 const REAL_API_HOST = "api.openai.com";
 
 let passed = 0;
@@ -324,6 +326,16 @@ async function main(): Promise<void> {
   console.log("");
 
   check("the worker completed exactly one generation", stats.completed === 1, JSON.stringify(stats));
+  check(
+    "the job was claimed exactly once, so no second paid call was made",
+    stats.claimed === 1,
+    `${stats.claimed} claim(s), ${stats.retried} retry/retries`
+  );
+  check("no retry was scheduled into a second provider call", stats.retried === 0);
+  check(
+    "the CinematicPromptSpec snapshot was persisted with the generation",
+    done.specSnapshot !== null && typeof done.specSnapshot === "object"
+  );
   check("the generation is COMPLETED", done.status === "COMPLETED");
   check("it points at an Asset", asset.id === done.assetId);
   check("the MIME type was validated", asset.mimeType === "image/png", asset.mimeType);
@@ -362,76 +374,58 @@ async function main(): Promise<void> {
     "the key is application-generated"
   );
 
-  console.log("\nPERSISTENCE (re-read from the database, as a page load would)\n");
-  const reread = await prisma.generation.findMany({
-    where: { shotId: shot.id },
-    orderBy: { createdAt: "asc" },
-    include: { asset: true },
+  // Persistence, a real browser refresh and the stranger checks are shared with
+  // the mock-backed verification, so this code has already been exercised
+  // before the one real run depends on it.
+  await verifyAfterGeneration({
+    prisma,
+    check,
+    projectId,
+    sceneId: shot.sceneId,
+    shotId: shot.id,
+    generationId: done.id,
+    assetId: asset.id,
+    assetChecksum: asset.checksum,
+    assetMimeType: asset.mimeType,
+    promptText,
+    before,
   });
-  check("the generation is still COMPLETED", reread.find((g) => g.id === done.id)?.status === "COMPLETED");
-  check("its image is still attached", reread.find((g) => g.id === done.id)?.asset?.id === asset.id);
-  check(
-    "its exact prompt is still attached",
-    reread.find((g) => g.id === done.id)?.promptUsed === promptText
-  );
-  check(
-    "previous generations were not overwritten",
-    before.every((g) => {
-      const now = reread.find((r) => r.id === g.id);
-      return now?.status === g.status && now?.assetId === g.assetId && now?.promptUsed === g.promptUsed;
-    }),
-    `${before.length} earlier generation(s) intact`
-  );
 
-  console.log("\nAUTHORIZATION (a second, unrelated user)\n");
-  const stranger = await prisma.user.upsert({
-    where: { email: "verify-stranger@example.test" },
-    update: {},
-    create: { name: "Stranger", email: "verify-stranger@example.test", passwordHash: "x" },
-  });
-  const { scopedTo } = await import("@/lib/authz");
-
-  const canRead = await prisma.generation.findFirst({
-    where: {
-      id: done.id,
-      project: {
-        OR: [{ ownerId: stranger.id }, { members: { some: { userId: stranger.id } } }],
+  console.log("\nAUTHORIZATION (the read query the application itself uses)\n");
+  const outsiderId = (
+    await prisma.user.create({
+      data: {
+        name: "Verification outsider",
+        email: `verify-outsider-${randomUUID().slice(0, 8)}@example.test`,
+        passwordHash: "x",
       },
-    },
-  });
-  check("the stranger cannot read the Generation", canRead === null);
+    })
+  ).id;
 
-  const canReadAsset = await prisma.asset.findFirst({
-    where: {
-      id: asset.id,
-      project: {
-        OR: [{ ownerId: stranger.id }, { members: { some: { userId: stranger.id } } }],
+  try {
+    const visibleGeneration = await prisma.generation.findFirst({
+      where: {
+        id: done.id,
+        project: {
+          OR: [{ ownerId: outsiderId }, { members: { some: { userId: outsiderId } } }],
+        },
       },
-    },
-  });
-  check("the stranger cannot resolve the Asset", canReadAsset === null);
+    });
+    check("an outsider's own query returns no Generation", visibleGeneration === null);
 
-  const strangerProject = await prisma.project.upsert({
-    where: { id: `verify-stranger-project-${stranger.id}`.slice(0, 25) },
-    update: {},
-    create: { title: "Stranger", ownerId: stranger.id },
-  });
-  const modified = await prisma.generation.updateMany({
-    where: { id: done.id, ...scopedTo.generation(strangerProject.id) },
-    data: { status: "FAILED" },
-  });
-  check("the stranger cannot modify the Generation", modified.count === 0);
+    const visibleAsset = await prisma.asset.findFirst({
+      where: {
+        id: asset.id,
+        project: {
+          OR: [{ ownerId: outsiderId }, { members: { some: { userId: outsiderId } } }],
+        },
+      },
+    });
+    check("an outsider's own query returns no Asset", visibleAsset === null);
+  } finally {
+    await prisma.user.delete({ where: { id: outsiderId } }).catch(() => {});
+  }
 
-  const deleted = await prisma.generation.deleteMany({
-    where: { id: done.id, ...scopedTo.generation(strangerProject.id) },
-  });
-  check("the stranger cannot delete the Generation", deleted.count === 0);
-
-  const stillThere = await prisma.generation.findUnique({ where: { id: done.id } });
-  check("the generation survived those attempts unchanged", stillThere?.status === "COMPLETED");
-
-  await prisma.project.delete({ where: { id: strangerProject.id } }).catch(() => {});
-  await prisma.user.delete({ where: { id: stranger.id } }).catch(() => {});
   await prisma.$disconnect();
 
   console.log(`\n${passed} passed, ${failed} failed`);

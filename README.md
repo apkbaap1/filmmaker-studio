@@ -571,8 +571,31 @@ npm run build && npm run verify:real-generation
 
 That performs exactly **one** genuine, billed generation from Shot 12 and records
 the evidence — provider, model, timestamps, generation id, asset id, MIME type,
-measured dimensions, file size and checksum — then re-reads it for persistence
-and checks a second user cannot reach any of it.
+measured dimensions, file size and checksum — then re-reads it from the database,
+**loads Shot 12 over real HTTP in a signed-in session** to confirm the image is
+still served, and checks a second user can reach none of it.
+
+Its post-generation half is not first exercised on the real run: the same code is
+shared with `npm run verify:image-provider`, which runs it against a local
+protocol mock on every pass. The one paid call is therefore the only part that
+has never been executed before.
+
+### Deployment requirements for the one real run
+
+| Requirement | Value |
+|---|---|
+| `OPENAI_API_KEY` | a real key with image-generation access, server-side only |
+| `OPENAI_BASE_URL` | **unset** — the harness refuses any other host |
+| `IMAGE_PROVIDER` | unset, or `openai-gpt-image-1` |
+| `DATABASE_URL` | a PostgreSQL instance with migrations applied |
+| `AUTH_SECRET` | any long random string |
+| Egress | outbound HTTPS to `api.openai.com` must be permitted |
+| Port | `VERIFY_PORT` (default 3122) free, for the browser-refresh check |
+| Data | the "The Last Reel" project, Scene 4, Shot 12 present |
+| Limits | `GENERATION_LIMIT_*` must permit one more generation |
+| Build | `npm run build` first — the harness scans the bundle for the credential |
+
+The run costs one `gpt-image-1` image and takes under a minute.
 
 It **cannot be satisfied by a mock**: it aborts unless the adapter is pointed at
 `api.openai.com`, so a pass cannot have come from anything else. It also refuses

@@ -22,10 +22,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import type { AddressInfo } from "node:net";
 import { PrismaClient } from "@prisma/client";
+import { verifyAfterGeneration } from "./verify-after-generation.ts";
 
 let passed = 0;
 let failed = 0;
-function check(name: string, ok: boolean, detail = ""): void {
+function check(name: string, ok: boolean, detail = ""): boolean {
   if (ok) {
     passed += 1;
     console.log(`  PASS  ${name}${detail ? ` — ${detail}` : ""}`);
@@ -33,6 +34,7 @@ function check(name: string, ok: boolean, detail = ""): void {
     failed += 1;
     console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`);
   }
+  return ok;
 }
 
 function crc32(buffer: Buffer): number {
@@ -170,6 +172,10 @@ async function main(): Promise<void> {
   );
 
   const before = await prisma.generation.count({ where: { shotId: shot.id } });
+  const beforeRows = await prisma.generation.findMany({
+    where: { shotId: shot.id },
+    select: { id: true, status: true, assetId: true, promptUsed: true },
+  });
 
   // --- queue ------------------------------------------------------------
   console.log("\n3. Queue");
@@ -267,6 +273,26 @@ async function main(): Promise<void> {
     "editing the shot afterwards does not alter the generation",
     afterEdit.promptUsed === promptText && afterEdit.assetId === done.assetId
   );
+
+  // --- the shared post-generation checks ---------------------------------
+  //
+  // The same code the real-provider verification runs. Exercising it here is
+  // the point: the real run happens once and costs money, so none of this may
+  // be running for the first time when it does.
+  //
+  await verifyAfterGeneration({
+    prisma,
+    check,
+    projectId,
+    sceneId,
+    shotId: shot.id,
+    generationId: done.id,
+    assetId: asset.id,
+    assetChecksum: asset.checksum,
+    assetMimeType: asset.mimeType,
+    promptText,
+    before: beforeRows,
+  });
 
   // --- failures ---------------------------------------------------------
   console.log("\n7. Failure handling against the same real adapter");
