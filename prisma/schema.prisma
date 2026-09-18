@@ -529,6 +529,15 @@ model Generation {
    */
   durationSeconds Float?
 
+  /**
+   * Exactly what was asked of the provider — size and any other provider-native
+   * parameters — frozen at submission alongside the prompt. Kept separate from
+   * the Asset's measured width/height on purpose: this is the *request*, and the
+   * Asset records what actually came back. Conflating the two would turn an
+   * unfulfilled request into a false record of what was produced.
+   */
+  requestedParams Json?
+
   error String?
 
   assetId String? @unique

@@ -110,7 +110,7 @@ export const localStubVideoProvider: VideoGenerationProvider = {
   id: "local-stub",
   label: "Local stub (no external provider)",
   model: "local-stub-v1",
-  capabilities: { imageToVideo: true, maxDurationSeconds: 30 },
+  capabilities: { kind: "stub", imageToVideo: true, maxDurationSeconds: 30 },
 
   // The stub really does honour the key — see `submit` — so this is a claim it
   // can back up rather than a convenience.

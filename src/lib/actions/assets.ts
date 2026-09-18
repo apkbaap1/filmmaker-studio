@@ -84,16 +84,18 @@ export async function generateImageAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  let buffer: Buffer;
+  // The free-text path shares the adapter with the structured one, so it gets
+  // the same response validation and the same measured dimensions.
+  let image;
   try {
-    buffer = await generateImage(parsed.data.prompt);
+    image = await generateImage(parsed.data.prompt);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Image generation failed" };
   }
 
   let saved;
   try {
-    saved = await storeProjectMedia(projectId, buffer, "image/png");
+    saved = await storeProjectMedia(projectId, image.data, image.mimeType);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not store the generated image" };
   }
@@ -110,6 +112,8 @@ export async function generateImageAction(
       checksum: saved.checksum,
       mimeType: saved.mimeType,
       fileSize: saved.fileSize,
+      width: image.width ?? null,
+      height: image.height ?? null,
       caption: parsed.data.caption || null,
       prompt: parsed.data.prompt,
     },

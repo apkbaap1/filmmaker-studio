@@ -73,6 +73,22 @@ export const localStubImageProvider: ImageGenerationProvider = {
   label: "Local stub (no external provider)",
   model: "local-stub-image-v1",
 
+  /**
+   * `kind: "stub"` is the load-bearing field. Everything that reports on a
+   * generation — the card, the logs, the export — reads it to say plainly that
+   * this image was produced locally and is not the output of any external AI
+   * model.
+   */
+  capabilities: {
+    kind: "stub",
+    sizes: ["64x64"],
+    defaultSize: "64x64",
+    outputMimeTypes: ["image/png"],
+    maxPromptCharacters: 32_000,
+    imagesPerRequest: 1,
+    supportsReferenceImages: false,
+  },
+
   // The output is a pure function of the prompt, so re-rendering the same
   // request costs nothing and returns identical bytes. That is idempotency in
   // the only sense that matters here.
@@ -92,6 +108,8 @@ export const localStubImageProvider: ImageGenerationProvider = {
     return {
       data: flatPng(64, [digest[0], digest[1], digest[2]]),
       mimeType: "image/png",
+      width: 64,
+      height: 64,
     };
   },
 };

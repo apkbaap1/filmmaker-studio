@@ -485,7 +485,7 @@ describe("Phase 6 — video provider abstraction", () => {
       id: "another",
       label: "Another",
       model: "m",
-      capabilities: { imageToVideo: false, allowedDurationsSeconds: [4, 8] },
+      capabilities: { kind: "stub", imageToVideo: false, allowedDurationsSeconds: [4, 8] },
       // Required rather than optional: an adapter has to state whether it can
       // deduplicate a resubmission, because the worker's crash-recovery path
       // depends on the answer.

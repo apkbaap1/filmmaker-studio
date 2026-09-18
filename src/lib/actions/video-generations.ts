@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
 import { compileShotPrompt } from "@/lib/shot-prompt";
 import { configuredVideoProviderId, getVideoProvider } from "@/lib/ai/video-providers";
+import { checkGenerationAllowed } from "@/lib/generation-limits";
 import { DEFAULT_PROVIDER_ID } from "@/lib/prompt";
 import { generationPromptSchema } from "@/lib/validation";
 
@@ -58,7 +59,7 @@ export async function startShotVideoGenerationAction(
   _prevState: StartVideoState,
   formData: FormData
 ): Promise<StartVideoState> {
-  await requireProjectAccess(projectId, { write: true });
+  const { session } = await requireProjectAccess(projectId, { write: true });
 
   const providerId = configuredVideoProviderId();
   if (!providerId) {
@@ -72,6 +73,15 @@ export async function startShotVideoGenerationAction(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
+
+  // The same hard ceiling as the image path. It is a no-op while the only video
+  // provider is a local stub, and it is already in place for the day one is not.
+  const allowed = await checkGenerationAllowed({
+    projectId,
+    userId: session.user.id,
+    providerKind: getVideoProvider(providerId).capabilities.kind,
+  });
+  if (!allowed.ok) return { error: allowed.reason };
 
   if (mode === "IMAGE_TO_VIDEO") {
     if (!sourceAssetId) return { error: "Choose a source frame to animate" };
@@ -119,6 +129,11 @@ export async function startShotVideoGenerationAction(
       providerId,
       model: getVideoProvider(providerId).model,
       promptProviderId: resolved.compiled.providerId,
+      requestedParams: {
+        durationSeconds: shot?.durationSeconds ?? null,
+        providerKind: getVideoProvider(providerId).capabilities.kind,
+        mode,
+      } as Prisma.InputJsonValue,
       nextAttemptAt: new Date(),
       // Carried from the shot, never invented: a shot with no stated duration
       // submits none and lets the provider use its own default.

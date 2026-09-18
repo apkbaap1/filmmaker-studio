@@ -41,6 +41,17 @@ export function listVideoProviders(): VideoGenerationProvider[] {
   return Object.values(providers);
 }
 
+/** The video counterpart of `describeImageProvider`. Same cautious default. */
+export function describeVideoProvider(providerId: string): {
+  label: string;
+  kind: "real" | "stub";
+  model: string | null;
+} {
+  const provider = providers[providerId];
+  if (!provider) return { label: providerId, kind: "real", model: null };
+  return { label: provider.label, kind: provider.capabilities.kind, model: provider.model };
+}
+
 export { localStubVideoProvider };
 export type {
   VideoGenerationMode,

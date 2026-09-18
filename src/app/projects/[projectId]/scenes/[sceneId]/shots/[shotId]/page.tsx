@@ -11,10 +11,58 @@ import {
   generateImageToVideoPrompt,
   generateVideoPrompt,
 } from "@/lib/prompt";
-import { getImageProvider } from "@/lib/ai/image-providers";
-import { configuredVideoProviderId, getVideoProvider } from "@/lib/ai/video-providers";
+import { describeImageProvider, getImageProvider } from "@/lib/ai/image-providers";
+import {
+  configuredVideoProviderId,
+  describeVideoProvider,
+  getVideoProvider,
+} from "@/lib/ai/video-providers";
 import { ShotDesign } from "./shot-design";
 import { ShotGeneration } from "./shot-generation";
+
+/**
+ * How to label one generation: which provider, which model, whether it was real,
+ * what was asked for, and how long the worker took.
+ *
+ * The provider is described from the registry rather than from the stored id, so
+ * a row written before a provider was renamed still reports correctly — and a
+ * stub can never be presented as an external render.
+ */
+function describeGeneration(generation: {
+  mode: string;
+  providerId: string;
+  model: string | null;
+  requestedParams: unknown;
+  submissionAttemptedAt: Date | null;
+  completedAt: Date | null;
+}) {
+  const described =
+    generation.mode === "IMAGE"
+      ? describeImageProvider(generation.providerId)
+      : describeVideoProvider(generation.providerId);
+
+  const params =
+    generation.requestedParams && typeof generation.requestedParams === "object"
+      ? (generation.requestedParams as Record<string, unknown>)
+      : undefined;
+  const requestedSize = typeof params?.size === "string" ? params.size : null;
+
+  // Measured from the worker's own timestamps. Null unless both ends exist —
+  // an elapsed time is a fact or it is nothing.
+  const generationMs =
+    generation.submissionAttemptedAt && generation.completedAt
+      ? generation.completedAt.getTime() - generation.submissionAttemptedAt.getTime()
+      : null;
+
+  return {
+    providerLabel: described.label,
+    providerKind: described.kind,
+    // The model recorded at submission wins: it is what actually ran.
+    model: generation.model ?? described.model,
+    requestedSize,
+    generationMs,
+  };
+}
 
 export default async function ShotDesignPage({
   params,
@@ -49,7 +97,7 @@ export default async function ShotDesignPage({
   const generations = await prisma.generation.findMany({
     where: { shotId, projectId },
     orderBy: { createdAt: "desc" },
-    include: { asset: { select: { mimeType: true } } },
+    include: { asset: { select: { mimeType: true, width: true, height: true } } },
   });
 
   // Stills already attached to this shot are what image-to-video can animate.
@@ -114,8 +162,10 @@ export default async function ShotDesignPage({
         }}
         imageProviderLabel={imageProvider.label}
         imageGenAvailable={imageProvider.isConfigured()}
+        imageProviderKind={imageProvider.capabilities?.kind ?? "real"}
         videoProviderLabel={videoProvider?.label ?? null}
         videoGenAvailable={Boolean(videoProvider)}
+        videoProviderKind={videoProvider?.capabilities.kind ?? null}
         sourceFrames={sourceFrames.map((asset) => ({
           id: asset.id,
           label:
@@ -134,10 +184,15 @@ export default async function ShotDesignPage({
           promptEdited: g.promptEdited,
           error: g.error,
           providerId: g.providerId,
+          ...describeGeneration(g),
           durationSeconds: g.durationSeconds,
           createdAt: g.createdAt.toISOString(),
           assetId: g.assetId,
           assetMimeType: g.asset?.mimeType ?? null,
+          // Measured from the stored bytes by the adapter, or null if nothing
+          // measured them. Never the requested size wearing a different hat.
+          width: g.asset?.width ?? null,
+          height: g.asset?.height ?? null,
           sourceAssetId: g.sourceAssetId,
         }))}
       />

@@ -55,8 +55,10 @@ export function ShotGeneration({
   prompts,
   imageProviderLabel,
   imageGenAvailable,
+  imageProviderKind,
   videoProviderLabel,
   videoGenAvailable,
+  videoProviderKind,
   sourceFrames,
   generations,
 }: {
@@ -66,8 +68,10 @@ export function ShotGeneration({
   prompts: Record<GenerationMode, string>;
   imageProviderLabel: string;
   imageGenAvailable: boolean;
+  imageProviderKind: "real" | "stub";
   videoProviderLabel: string | null;
   videoGenAvailable: boolean;
+  videoProviderKind: "real" | "stub" | null;
   sourceFrames: SourceFrame[];
   generations: GenerationItem[];
 }) {
@@ -89,6 +93,7 @@ export function ShotGeneration({
   const isVideo = mode !== "IMAGE";
   const available = isVideo ? videoGenAvailable : imageGenAvailable;
   const providerLabel = isVideo ? videoProviderLabel : imageProviderLabel;
+  const providerKind = isVideo ? videoProviderKind : imageProviderKind;
   const blocked =
     mode === "IMAGE_TO_VIDEO" && sourceFrames.length === 0
       ? "Generate or upload an image for this shot first — image-to-video needs a source frame."
@@ -196,6 +201,10 @@ export function ShotGeneration({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-foreground">Generate from this shot</h3>
         {providerLabel ? <Badge tone="accent">{providerLabel}</Badge> : <Badge>no provider</Badge>}
+        {/* Said before the button is pressed, not only after: whether this will
+            call a paid external model or render a local placeholder. */}
+        {available && providerKind === "stub" && <Badge>local stub</Badge>}
+        {available && providerKind === "real" && <Badge tone="green">real provider</Badge>}
         {edited && <Badge>edited</Badge>}
       </div>
 
@@ -217,6 +226,14 @@ export function ShotGeneration({
       </div>
 
       <p className="mb-3 text-xs text-muted">{BLURB[mode]}</p>
+
+      {available && providerKind === "stub" && (
+        <p className="mb-3 text-xs text-muted">
+          This is a local stub. It produces a deterministic placeholder so the pipeline can be
+          exercised end to end — it does not call any external AI model, and nothing it returns is
+          a render of this prompt.
+        </p>
+      )}
 
       {mode === "IMAGE_TO_VIDEO" && sourceFrames.length > 0 && (
         <div className="mb-3 max-w-md">

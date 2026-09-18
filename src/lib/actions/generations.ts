@@ -9,6 +9,7 @@ import { canTransition } from "@/lib/jobs/state";
 import type { GenerationFailureKind, GenerationStatus } from "@prisma/client";
 import { compileShotImagePrompt } from "@/lib/shot-prompt";
 import { configuredImageProviderId, getImageProvider } from "@/lib/ai/image-providers";
+import { checkGenerationAllowed } from "@/lib/generation-limits";
 import { DEFAULT_PROVIDER_ID } from "@/lib/prompt";
 import { generationPromptSchema } from "@/lib/validation";
 
@@ -65,7 +66,7 @@ export async function startShotImageGenerationAction(
   _prevState: StartGenerationState,
   formData: FormData
 ): Promise<StartGenerationState> {
-  await requireProjectAccess(projectId, { write: true });
+  const { session } = await requireProjectAccess(projectId, { write: true });
 
   const parsed = generationPromptSchema.safeParse({ prompt: formData.get("prompt") });
   if (!parsed.success) {
@@ -80,6 +81,39 @@ export async function startShotImageGenerationAction(
 
   const submitted = parsed.data.prompt;
   const providerId = configuredImageProviderId();
+  const provider = getImageProvider(providerId);
+  const capabilities = provider.capabilities;
+
+  if (!provider.isConfigured()) {
+    return { error: `${provider.label} is not configured on this server.` };
+  }
+
+  // Cost protection, before anything that could be billed. Checked on the
+  // server because a client-side limit protects nobody.
+  const allowed = await checkGenerationAllowed({
+    projectId,
+    userId: session.user.id,
+    providerKind: capabilities?.kind ?? "real",
+  });
+  if (!allowed.ok) return { error: allowed.reason };
+
+  // What is being asked of the provider, decided here and frozen on the row.
+  const requestedSize = capabilities?.defaultSize;
+  if (requestedSize && capabilities && !capabilities.sizes.includes(requestedSize)) {
+    // An adapter whose own default is not in its own size list is misconfigured;
+    // refusing is better than sending something it says it cannot render.
+    return {
+      error: `${provider.label} does not support ${requestedSize}. It supports ${capabilities.sizes.join(", ")}.`,
+    };
+  }
+  if (capabilities && submitted.length > capabilities.maxPromptCharacters) {
+    // Explicit refusal rather than truncation: the end of a compiled prompt is
+    // usually the lighting and mood, and losing it silently is worse than a
+    // clear failure.
+    return {
+      error: `This prompt is ${submitted.length} characters; ${provider.label} accepts at most ${capabilities.maxPromptCharacters}.`,
+    };
+  }
 
   const generation = await prisma.generation.create({
     data: {
@@ -96,8 +130,15 @@ export async function startShotImageGenerationAction(
       promptEdited: submitted.trim() !== resolved.compiled.text.trim(),
       specSnapshot: resolved.compiled.spec as unknown as Prisma.InputJsonValue,
       providerId,
-      model: getImageProvider(providerId).model,
+      model: provider.model,
       promptProviderId: resolved.compiled.providerId,
+      // The submission snapshot: what was asked for, beside the prompt it was
+      // asked with. Never re-derived, never updated after the fact.
+      requestedParams: {
+        size: requestedSize ?? null,
+        providerKind: capabilities?.kind ?? "real",
+        imagesRequested: 1,
+      } as Prisma.InputJsonValue,
       // Eligible immediately. The worker's claim query treats a null as "now"
       // too, but being explicit keeps the queue readable in psql.
       nextAttemptAt: new Date(),

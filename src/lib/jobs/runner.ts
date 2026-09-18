@@ -57,6 +57,28 @@ interface StagedMedia {
   mimeType: string;
 }
 
+/**
+ * The provider-native size frozen on the job at submission.
+ *
+ * Undefined for a generation queued before the column existed, or by a path that
+ * records none — in which case the adapter uses its own default, which is what
+ * happened at the time anyway.
+ */
+function requestedSize(generation: Generation): string | undefined {
+  const params = generation.requestedParams;
+  if (!params || typeof params !== "object" || Array.isArray(params)) return undefined;
+  const size = (params as Record<string, unknown>).size;
+  return typeof size === "string" ? size : undefined;
+}
+
+/** Reads the real/stub flag frozen on the job at submission. */
+function providerKindFor(generation: Generation): string | undefined {
+  const params = generation.requestedParams;
+  if (!params || typeof params !== "object" || Array.isArray(params)) return undefined;
+  const kind = (params as Record<string, unknown>).providerKind;
+  return typeof kind === "string" ? kind : undefined;
+}
+
 function stagedFrom(value: Prisma.JsonValue | null): StagedMedia | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
@@ -132,10 +154,16 @@ async function runImageStep(
     // The prompt is read from the job, never recompiled. A shot edited after
     // queuing does not change what is already in flight.
     prompt: generation.promptUsed,
+    // Likewise the size: what was requested at submission, not what the
+    // adapter's default happens to be today.
+    size: requestedSize(generation),
     idempotencyKey: generation.idempotencyKey,
   });
 
-  return storeAndComplete(generation, lease, image.data, image.mimeType, "IMAGE", now, db);
+  return storeAndComplete(generation, lease, image.data, image.mimeType, "IMAGE", now, db, {
+    width: image.width,
+    height: image.height,
+  });
 }
 
 // --- video: submit, let go, poll later ---------------------------------------
@@ -333,7 +361,13 @@ async function storeAndComplete(
   mimeType: string,
   assetType: "IMAGE" | "VIDEO",
   now: Date,
-  db: Db
+  db: Db,
+  /**
+   * Measured by the adapter from the returned bytes. Absent when the adapter
+   * could not determine them, in which case the Asset records null rather than
+   * a number nobody measured.
+   */
+  dimensions: { width?: number; height?: number } = {}
 ): Promise<StepOutcome> {
   let staged = stagedFrom(generation.stagedMedia);
   if (!staged) {
@@ -396,6 +430,8 @@ async function storeAndComplete(
         checksum: stored.checksum,
         mimeType: stored.mimeType,
         fileSize: stored.fileSize,
+        width: dimensions.width ?? null,
+        height: dimensions.height ?? null,
         prompt: generation.promptUsed,
       },
     });
@@ -422,7 +458,16 @@ async function storeAndComplete(
     return asset.id;
   });
 
-  jobLog("completed", generation, { assetId, storageKey: stored.storageKey });
+  jobLog("completed", generation, {
+    assetId,
+    storageKey: stored.storageKey,
+    model: generation.model,
+    // So a log line on its own distinguishes a paid external render from a local
+    // placeholder, without the reader having to know which provider ids are which.
+    providerKind: providerKindFor(generation),
+    width: dimensions.width,
+    height: dimensions.height,
+  });
   return { kind: "completed", assetId };
 }
 

@@ -18,6 +18,19 @@ export type GenerationItem = {
   promptEdited: boolean;
   error: string | null;
   providerId: string;
+  providerLabel: string;
+  /**
+   * Whether an external AI service actually produced this, or a local stub did.
+   * Never inferred from the provider id: it comes from the adapter's own
+   * declared capabilities.
+   */
+  providerKind: "real" | "stub";
+  model: string | null;
+  requestedSize: string | null;
+  width: number | null;
+  height: number | null;
+  /** Milliseconds from the worker starting the attempt to the Asset being stored. */
+  generationMs: number | null;
   durationSeconds: number | null;
   createdAt: string;
   assetId: string | null;
@@ -108,14 +121,44 @@ export function GenerationCard({
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={STATUS_TONE[generation.status]}>{STATUS_LABEL[generation.status]}</Badge>
           <Badge>{MODE_LABEL[generation.mode]}</Badge>
+          {/* The distinction that must never be ambiguous: a local placeholder
+              is not the output of an external AI model, and says so on its face. */}
+          {generation.providerKind === "stub" ? (
+            <Badge>Local stub · not AI-generated</Badge>
+          ) : (
+            <Badge tone="green">AI generated</Badge>
+          )}
           {generation.source === "QUICK" && <Badge>Free text</Badge>}
           {generation.promptEdited && <Badge tone="accent">Prompt edited</Badge>}
         </div>
 
         <p className="text-xs text-muted">
-          {new Date(generation.createdAt).toLocaleString()} · {generation.providerId}
-          {generation.durationSeconds != null && ` · ${generation.durationSeconds}s requested`}
+          {new Date(generation.createdAt).toLocaleString()} · {generation.providerLabel}
+          {generation.model && ` · ${generation.model}`}
         </p>
+
+        {generation.status === "COMPLETED" && (
+          <p className="text-xs text-muted">
+            {/* Measured, not requested. A blank here means nothing measured it. */}
+            {generation.width != null && generation.height != null
+              ? `${generation.width}×${generation.height}`
+              : "dimensions not recorded"}
+            {generation.requestedSize && ` · ${generation.requestedSize} requested`}
+            {generation.generationMs != null &&
+              ` · took ${(generation.generationMs / 1000).toFixed(1)}s`}
+          </p>
+        )}
+
+        {generation.durationSeconds != null && (
+          <p className="text-xs text-muted">{generation.durationSeconds}s requested</p>
+        )}
+
+        {generation.providerKind === "stub" && generation.status === "COMPLETED" && (
+          <p className="text-xs text-muted">
+            Produced locally to exercise the pipeline. It is not a render of this prompt by any
+            external model.
+          </p>
+        )}
 
         {generation.sourceAssetId && (
           <div className="flex items-center gap-2">

@@ -369,9 +369,10 @@ deployable:
 | Area | State today | Needed for production |
 |---|---|---|
 | **Asset storage** | S3-compatible object storage, local disk in development | Configure `S3_*` and run `npm run storage:migrate` |
+| **Image provider** | OpenAI gpt-image-1, implemented and tested; not yet run against the live API | A credential and network egress — see "Image generation" |
 | **Video providers** | Adapter interface + labelled local stub | A real adapter once a platform is chosen |
 | **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
-| **Billing / quotas** | None | Provider spend tracking and limits |
+| **Billing / quotas** | Hard configurable ceilings, no accounting | Per-user spend tracking (Workstream 11.7) |
 | **Export assets** | Exports reference asset ids and storage keys | Bundling media into a downloadable archive |
 | **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
 | **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |
@@ -461,6 +462,109 @@ how long a leaked link stays useful, nothing more.
 
 Run `npm run verify:storage` against a built app to exercise all of this over
 real HTTP with two real users.
+
+## Image generation
+
+One real provider is implemented: **OpenAI `gpt-image-1`**, via the Images API
+(`POST /v1/images/generations`). It is reached through the same
+`ImageGenerationProvider` interface everything else uses, so replacing it means
+writing one adapter file and changing one registry entry — no filmmaking data,
+no compiler behaviour and no storage code moves.
+
+```
+OPENAI_API_KEY="sk-..."          # required; billed
+OPENAI_BASE_URL="https://..."    # optional: Azure OpenAI, a gateway, a mock
+IMAGE_PROVIDER="local-stub"      # optional: the deterministic local stub instead
+```
+
+With no key set, image generation is unavailable and the UI says so. It never
+quietly falls back to the stub.
+
+### What the adapter will and will not do
+
+It sends the prompt **byte-for-byte** as the deterministic compiler produced it,
+or as the filmmaker edited it. There is no LLM in this path, no "prompt
+improvement" step and no vocabulary substitution: an 85mm lens stays 85mm, a Low
+Angle stays a Low Angle, a Medium Close-Up stays a Medium Close-Up.
+
+Where the provider genuinely cannot do something, the request **fails
+explicitly** rather than being quietly adjusted:
+
+| Requested | Response |
+|---|---|
+| a size outside 1024×1024, 1536×1024, 1024×1536 | refused, naming the supported sizes |
+| a prompt over 32,000 characters | refused — truncating would silently drop the lighting and mood off the end |
+| an empty prompt | refused |
+
+### Validating what comes back
+
+Nothing about the response is taken on trust. The status is checked, the body is
+checked for being JSON at all, the payload is checked for containing image data,
+and the decoded bytes are parsed as an image before anything is stored. An HTML
+error page from a proxy or gateway cannot become a PNG in a storyboard.
+
+Width and height are read **from the returned file**, never from what was asked
+for. The Generation records the request; the Asset records what actually arrived.
+If an adapter cannot determine dimensions, the Asset stores null rather than a
+guess.
+
+### Failure classification
+
+| Provider says | Treated as |
+|---|---|
+| 401 / 403 — bad credentials | permanent; never retried |
+| 400 / 404 / 422 — rejected prompt, unknown model, bad parameter | permanent |
+| 429 — rate limited | retryable; the provider's `Retry-After` is preserved in the message |
+| 5xx, timeout, connection failure | retryable |
+
+**On rate limits, precisely:** the adapter reads and reports the provider's
+`Retry-After` hint and the worker's bounded retries prevent a tight loop. There
+is no client-side rate *limiter* — nothing paces requests ahead of time or
+tracks a token budget. The concurrency ceiling below is what actually caps
+parallel requests.
+
+### Cost protection
+
+This is the first thing here that spends money, so there are hard ceilings,
+checked server-side before a job is queued:
+
+| Limit | Default | Environment variable |
+|---|---|---|
+| per user, per window, across all their projects | 50 | `GENERATION_LIMIT_PER_USER` |
+| per project, per window | 200 | `GENERATION_LIMIT_PER_PROJECT` |
+| in flight at once, per project | 5 | `GENERATION_LIMIT_CONCURRENT` |
+| images per request | 1 | `GENERATION_LIMIT_PER_REQUEST` |
+| the rolling window | 24h | `GENERATION_LIMIT_WINDOW_HOURS` |
+
+They count **attempts, not successes** — a failed generation was still billed —
+and they ignore local stub generations, which cost nothing. Every limit has a
+finite default and there is no "unlimited" setting. A nonsensical value falls
+back to the default rather than disabling the limit.
+
+This is deliberately not billing and not quota accounting; Workstream 11.7 owns
+that. It is a blunt stop so nothing can run away before then.
+
+### Real versus stub
+
+The local stub renders a flat PNG derived from the prompt's hash. It exists to
+exercise the pipeline and is **never** presented as AI generation: the adapter
+declares `kind: "stub"`, and the UI badges it "Local stub · not AI-generated",
+explains itself under a completed card, and warns before you press Generate. The
+worker's log lines carry `providerKind` too, so a log alone distinguishes a paid
+render from a placeholder.
+
+### Verification status
+
+The adapter is verified against a local server speaking the OpenAI Images
+protocol (`npm run verify:image-provider`, 40 checks), plus 41 unit tests over
+request construction, response validation and error classification.
+
+**It has not been run against the live OpenAI API.** No credential exists in this
+environment, and its network policy denies egress to `api.openai.com`. Those
+checks prove this application's half of the conversation is correct; they are
+not evidence that the live service behaves as documented. To close that gap: set
+`OPENAI_API_KEY`, allow egress, and run the verification with `OPENAI_BASE_URL`
+unset.
 
 ## Background generation
 

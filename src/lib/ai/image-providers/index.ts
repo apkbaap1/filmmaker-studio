@@ -40,3 +40,25 @@ export function listImageProviders(): ImageGenerationProvider[] {
 
 export { localStubImageProvider } from "./local-stub.ts";
 export type { GeneratedImage, ImageGenerationProvider, ImageGenerationRequest } from "./types.ts";
+
+/**
+ * How a generation should be described, for any provider id that ever reached
+ * the database — including one that has since been removed from the registry.
+ *
+ * `kind` defaults to "real" for an unknown id, which is the cautious way round:
+ * mislabelling a real render as a stub understates what was produced, while the
+ * reverse would present a placeholder as AI generation.
+ */
+export function describeImageProvider(providerId: string): {
+  label: string;
+  kind: "real" | "stub";
+  model: string | null;
+} {
+  const provider = providers[providerId];
+  if (!provider) return { label: providerId, kind: "real", model: null };
+  return {
+    label: provider.label,
+    kind: provider.capabilities?.kind ?? "real",
+    model: provider.model,
+  };
+}

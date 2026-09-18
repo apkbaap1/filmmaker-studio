@@ -52,6 +52,12 @@ export interface VideoGenerationProvider {
   /** Which model the adapter drives, for the audit trail. Never a credential. */
   model: string;
   capabilities: {
+    /**
+     * `real` means an external service is called and billed; `stub` means the
+     * clip is produced locally and is never evidence of AI generation. Reported
+     * in the UI and the logs so the two can never be confused.
+     */
+    kind: "real" | "stub";
     imageToVideo: boolean;
     maxDurationSeconds?: number;
     /** Set only when the provider accepts a fixed set of clip lengths. */
