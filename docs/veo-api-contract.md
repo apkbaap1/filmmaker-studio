@@ -137,7 +137,48 @@ This is exactly what `src/lib/ai/media-download.ts` (11.5 prep) is for — the c
 enforced during transfer, and `readVideoMetadata` measures the result. Dimensions and
 duration are measured from the bytes, never taken from the request parameters.
 
-## 10. Not yet established
+## 10. Models
+
+`[P]` `listModels` filtered to those declaring `predictLongRunning`, plus each model's
+`GET /v1beta/models/{id}` detail. Three exist, all Veo 3.1, all preview:
+
+| model | displayName | inputTokenLimit | methods |
+|---|---|---|---|
+| `models/veo-3.1-generate-preview` | Veo 3.1 | 480 | `predictLongRunning` |
+| `models/veo-3.1-fast-generate-preview` | Veo 3.1 fast | 480 | `predictLongRunning` |
+| `models/veo-3.1-lite-generate-preview` | Veo 3.1 lite | 480 | `predictLongRunning` |
+
+All three are `-preview`. The adapter pins exactly one model ID explicitly and records it
+on the Generation for the audit trail. A preview ID can be withdrawn, so an unknown-model
+rejection is PERMANENT, not retryable.
+
+## 11. Prompt budget — `inputTokenLimit: 480`
+
+This is the constraint with real consequences for the compiler, and it is roughly **60x
+tighter than the image provider**: `openai.ts` allows `MAX_PROMPT_CHARACTERS = 32_000`.
+
+Measured against the Phase 3 worked example (Shot 12, fully specified, every temporal
+field populated), rendered through `renderVideoPrompt`:
+
+| prompt | chars | words |
+|---|---|---|
+| text-to-video | 948 | 148 |
+| image-to-video | 798 | 126 |
+
+That fits, with roughly a 2x margin. But the margin is not guaranteed: a scene with
+several characters, a long `action`, or long dialogue will grow the prompt, and Veo's
+tokenizer is not available locally, so the true count cannot be computed here.
+
+Two rules follow, and they are not optional:
+
+1. **The adapter must never truncate the prompt to fit.** Truncation silently discards
+   filmmaker decisions, which every phase from 3 onward forbids. A prompt that cannot
+   fit is a PERMANENT failure naming the overflow, so the filmmaker decides what to cut.
+2. **A local pre-check cannot be authoritative**, because we cannot count Veo's tokens.
+   It may reject early on a conservative budget, but a provider-side rejection must be
+   surfaced verbatim rather than worked around.
+
+## 12. Not yet established
 
 Per-model allowed values for `durationSeconds`, `resolution` and `aspectRatio` are
 **model-specific** and appear in none of the three sources above:
@@ -148,7 +189,9 @@ Per-model allowed values for `durationSeconds`, `resolution` and `aspectRatio` a
   `fieldViolations: null` for every malformed shape, so it leaks no field names
   or value ranges.
 
-These must come from the `models` section of `artifacts/veo-api-contract.json`
-(`GET /v1beta/models/{id}`) or from a real accepted call. **Do not guess them.**
+The model detail in `[P]` does **not** carry them either — it declares only
+`inputTokenLimit`, `outputTokenLimit`, `version` and `supportedGenerationMethods`. So all
+four sources have now been exhausted, and these values can only come from a real accepted
+call. **Do not guess them.**
 The adapter must send only values the filmmaker chose, and surface a provider
 rejection verbatim rather than silently substituting a value it believes is valid.
