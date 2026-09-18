@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { NOT_FOUND, missed, scopedTo } from "@/lib/authz";
 import { equipmentSchema } from "@/lib/validation";
 
 export type FormState = { error?: string } | undefined;
@@ -43,13 +44,17 @@ export async function updateEquipmentAction(
   const parsed = parseForm(formData);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  await prisma.equipment.update({ where: { id: equipmentId }, data: parsed.data });
+  const result = await prisma.equipment.updateMany({
+    where: { id: equipmentId, ...scopedTo.equipment(projectId) },
+    data: parsed.data,
+  });
+  if (missed(result)) return NOT_FOUND;
   revalidatePath(`/projects/${projectId}/equipment`);
   return undefined;
 }
 
 export async function deleteEquipmentAction(projectId: string, equipmentId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.equipment.delete({ where: { id: equipmentId } });
+  await prisma.equipment.deleteMany({ where: { id: equipmentId, ...scopedTo.equipment(projectId) } });
   revalidatePath(`/projects/${projectId}/equipment`);
 }

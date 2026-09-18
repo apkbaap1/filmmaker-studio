@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { scopedTo } from "@/lib/authz";
 import { readStoredFile, saveGeneratedVideo } from "@/lib/storage";
 import { compileShotPrompt } from "@/lib/shot-prompt";
 import {
@@ -149,7 +150,7 @@ export async function runVideoGenerationAction(
 
   // Claim the row before submitting, so a double-click cannot create two jobs.
   const claimed = await prisma.generation.updateMany({
-    where: { id: generationId, status: { in: ["QUEUED", "FAILED"] } },
+    where: { id: generationId, status: { in: ["QUEUED", "FAILED"] }, ...scopedTo.generation(projectId) },
     data: { status: "PROCESSING", error: null },
   });
   if (claimed.count === 0) return { error: "That generation is already running" };
@@ -171,13 +172,13 @@ export async function runVideoGenerationAction(
       sourceImage,
     });
 
-    await prisma.generation.update({
-      where: { id: generationId },
+    await prisma.generation.updateMany({
+      where: { id: generationId, ...scopedTo.generation(projectId) },
       data: { providerJobId },
     });
     return { status: "PROCESSING" };
   } catch (err) {
-    return failGeneration(generationId, err);
+    return failGeneration(projectId, generationId, err);
   }
 }
 
@@ -203,7 +204,7 @@ export async function pollVideoGenerationAction(
   try {
     const result = await getVideoProvider(generation.providerId).poll(generation.providerJobId);
     if (result.status === "processing") return { status: "PROCESSING" };
-    if (result.status === "failed") return failGeneration(generationId, new Error(result.error));
+    if (result.status === "failed") return failGeneration(projectId, generationId, new Error(result.error));
 
     const saved = await saveGeneratedVideo(projectId, result.video.data, result.video.mimeType);
     const asset = await prisma.asset.create({
@@ -220,8 +221,8 @@ export async function pollVideoGenerationAction(
       },
     });
 
-    await prisma.generation.update({
-      where: { id: generationId },
+    await prisma.generation.updateMany({
+      where: { id: generationId, ...scopedTo.generation(projectId) },
       data: { status: "COMPLETED", assetId: asset.id, error: null },
     });
 
@@ -232,7 +233,7 @@ export async function pollVideoGenerationAction(
     }
     return { status: "COMPLETED" };
   } catch (err) {
-    return failGeneration(generationId, err);
+    return failGeneration(projectId, generationId, err);
   }
 }
 
@@ -240,10 +241,14 @@ export async function pollVideoGenerationAction(
  * Records the failure on the row rather than discarding the attempt, so the
  * history shows what was tried and why it did not work.
  */
-async function failGeneration(generationId: string, err: unknown): Promise<PollVideoState> {
+async function failGeneration(
+  projectId: string,
+  generationId: string,
+  err: unknown
+): Promise<PollVideoState> {
   const message = err instanceof Error ? err.message : "Video generation failed";
-  await prisma.generation.update({
-    where: { id: generationId },
+  await prisma.generation.updateMany({
+    where: { id: generationId, ...scopedTo.generation(projectId) },
     data: { status: "FAILED", error: message.slice(0, 1000) },
   });
   return { status: "FAILED", error: message };

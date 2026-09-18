@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { NOT_FOUND, scopedTo } from "@/lib/authz";
 import { sceneSchema } from "@/lib/validation";
 
 export type FormState = { error?: string } | undefined;
@@ -60,11 +61,26 @@ export async function updateSceneAction(
   }
 
   const { characterIds, ...data } = parsed.data;
+
+  const scene = await prisma.scene.findFirst({
+    where: { id: sceneId, ...scopedTo.scene(projectId) },
+    select: { id: true },
+  });
+  if (!scene) return NOT_FOUND;
+
+  // Characters are filtered to this project too: a scene must not be able to
+  // reference a cast member from someone else's production.
+  const owned = await prisma.castMember.findMany({
+    where: { id: { in: characterIds }, ...scopedTo.castMember(projectId) },
+    select: { id: true },
+  });
+
   await prisma.scene.update({
-    where: { id: sceneId },
+    // authz-safe: `scene.id` came from the scoped read above.
+    where: { id: scene.id },
     data: {
       ...data,
-      characters: { set: characterIds.map((id) => ({ id })) },
+      characters: { set: owned.map((c) => ({ id: c.id })) },
     },
   });
   revalidatePath(`/projects/${projectId}/scenes`);
@@ -74,7 +90,7 @@ export async function updateSceneAction(
 
 export async function deleteSceneAction(projectId: string, sceneId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.scene.delete({ where: { id: sceneId } });
+  await prisma.scene.deleteMany({ where: { id: sceneId, ...scopedTo.scene(projectId) } });
   revalidatePath(`/projects/${projectId}/scenes`);
   redirect(`/projects/${projectId}/scenes`);
 }

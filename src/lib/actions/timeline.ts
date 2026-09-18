@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { NOT_FOUND, missed, scopedTo } from "@/lib/authz";
 import { splitPlacement } from "@/lib/timeline";
 import {
   assetMediaInfoSchema,
@@ -37,7 +38,7 @@ function revalidateTimeline(projectId: string) {
 /** Loads a clip only if it really belongs to this project. */
 async function clipInProject(projectId: string, clipId: string) {
   return prisma.timelineClip.findFirst({
-    where: { id: clipId, sequence: { projectId } },
+    where: { id: clipId, ...scopedTo.timelineClip(projectId) },
     include: { sequence: { select: { id: true } } },
   });
 }
@@ -160,7 +161,10 @@ export async function addClipAction(
 
   await prisma.$transaction([
     ...clips.slice(insertAt).map((c, i) =>
-      prisma.timelineClip.update({ where: { id: c.id }, data: { order: insertAt + i + 1 } })
+      prisma.timelineClip.updateMany({
+        where: { id: c.id, ...scopedTo.timelineClip(projectId) },
+        data: { order: insertAt + i + 1 },
+      })
     ),
     prisma.timelineClip.create({ data: { sequenceId, shotId, order: insertAt } }),
   ]);
@@ -182,7 +186,9 @@ export async function removeClipAction(projectId: string, clipId: string) {
   const clip = await clipInProject(projectId, clipId);
   if (!clip) return;
 
-  await prisma.timelineClip.delete({ where: { id: clipId } });
+  await prisma.timelineClip.deleteMany({
+    where: { id: clipId, ...scopedTo.timelineClip(projectId) },
+  });
   await renumber(clip.sequenceId);
   revalidateTimeline(projectId);
 }
@@ -229,13 +235,14 @@ export async function trimClipAction(
   const clip = await clipInProject(projectId, clipId);
   if (!clip) return { error: "Clip not found" };
 
-  await prisma.timelineClip.update({
-    where: { id: clipId },
+  const trimmed = await prisma.timelineClip.updateMany({
+    where: { id: clipId, ...scopedTo.timelineClip(projectId) },
     data: {
       inPointSeconds: parsed.data.inPointSeconds,
       outPointSeconds: parsed.data.outPointSeconds,
     },
   });
+  if (missed(trimmed)) return NOT_FOUND;
 
   revalidateTimeline(projectId);
   return undefined;
@@ -267,9 +274,15 @@ export async function splitClipAction(
 
   await prisma.$transaction([
     ...later.map((c, i) =>
-      prisma.timelineClip.update({ where: { id: c.id }, data: { order: clip.order + 2 + i } })
+      prisma.timelineClip.updateMany({
+        where: { id: c.id, ...scopedTo.timelineClip(projectId) },
+        data: { order: clip.order + 2 + i },
+      })
     ),
-    prisma.timelineClip.update({ where: { id: clipId }, data: halves.first }),
+    prisma.timelineClip.updateMany({
+      where: { id: clipId, ...scopedTo.timelineClip(projectId) },
+      data: halves.first,
+    }),
     prisma.timelineClip.create({
       data: {
         sequenceId: clip.sequenceId,
@@ -308,13 +321,14 @@ export async function setClipTransitionAction(
   const clip = await clipInProject(projectId, clipId);
   if (!clip) return { error: "Clip not found" };
 
-  await prisma.timelineClip.update({
-    where: { id: clipId },
+  const updated = await prisma.timelineClip.updateMany({
+    where: { id: clipId, ...scopedTo.timelineClip(projectId) },
     data: {
       transition: parsed.data.transition,
       transitionDurationSeconds: parsed.data.durationSeconds,
     },
   });
+  if (missed(updated)) return NOT_FOUND;
 
   revalidateTimeline(projectId);
   return undefined;
@@ -342,7 +356,11 @@ export async function selectClipAssetAction(
     if (!asset) return { error: "That asset does not belong to this shot" };
   }
 
-  await prisma.timelineClip.update({ where: { id: clipId }, data: { selectedAssetId: assetId } });
+  const selected = await prisma.timelineClip.updateMany({
+    where: { id: clipId, ...scopedTo.timelineClip(projectId) },
+    data: { selectedAssetId: assetId },
+  });
+  if (missed(selected)) return NOT_FOUND;
   revalidateTimeline(projectId);
   return undefined;
 }
@@ -356,10 +374,11 @@ export async function setClipNotesAction(
   const clip = await clipInProject(projectId, clipId);
   if (!clip) return { error: "Clip not found" };
 
-  await prisma.timelineClip.update({
-    where: { id: clipId },
+  const noted = await prisma.timelineClip.updateMany({
+    where: { id: clipId, ...scopedTo.timelineClip(projectId) },
     data: { notes: notes.trim() ? notes.slice(0, 2000) : null },
   });
+  if (missed(noted)) return NOT_FOUND;
   revalidateTimeline(projectId);
   return undefined;
 }
@@ -402,6 +421,12 @@ async function renumber(sequenceId: string) {
     select: { id: true },
   });
   await prisma.$transaction(
-    clips.map((c, i) => prisma.timelineClip.update({ where: { id: c.id }, data: { order: i } }))
+    clips.map((c, i) =>
+      prisma.timelineClip.updateMany({
+        // authz-safe: `clips` was read from a sequence already scoped to the project.
+        where: { id: c.id },
+        data: { order: i },
+      })
+    )
   );
 }

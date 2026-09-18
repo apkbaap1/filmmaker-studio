@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { NOT_FOUND, missed, scopedTo } from "@/lib/authz";
 import { castMemberSchema, crewMemberSchema } from "@/lib/validation";
 
 export type FormState = { error?: string } | undefined;
@@ -42,14 +43,18 @@ export async function updateCastMemberAction(
   const parsed = parseCastForm(formData);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  await prisma.castMember.update({ where: { id: castId }, data: parsed.data });
+  const result = await prisma.castMember.updateMany({
+    where: { id: castId, ...scopedTo.castMember(projectId) },
+    data: parsed.data,
+  });
+  if (missed(result)) return NOT_FOUND;
   revalidatePath(`/projects/${projectId}/cast-crew`);
   return undefined;
 }
 
 export async function deleteCastMemberAction(projectId: string, castId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.castMember.delete({ where: { id: castId } });
+  await prisma.castMember.deleteMany({ where: { id: castId, ...scopedTo.castMember(projectId) } });
   revalidatePath(`/projects/${projectId}/cast-crew`);
 }
 
@@ -89,13 +94,17 @@ export async function updateCrewMemberAction(
   const parsed = parseCrewForm(formData);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
-  await prisma.crewMember.update({ where: { id: crewId }, data: parsed.data });
+  const result = await prisma.crewMember.updateMany({
+    where: { id: crewId, ...scopedTo.crewMember(projectId) },
+    data: parsed.data,
+  });
+  if (missed(result)) return NOT_FOUND;
   revalidatePath(`/projects/${projectId}/cast-crew`);
   return undefined;
 }
 
 export async function deleteCrewMemberAction(projectId: string, crewId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.crewMember.delete({ where: { id: crewId } });
+  await prisma.crewMember.deleteMany({ where: { id: crewId, ...scopedTo.crewMember(projectId) } });
   revalidatePath(`/projects/${projectId}/cast-crew`);
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { scopedTo } from "@/lib/authz";
 import { saveGeneratedImage } from "@/lib/storage";
 import { compileShotImagePrompt } from "@/lib/shot-prompt";
 import { DEFAULT_IMAGE_PROVIDER_ID, getImageProvider } from "@/lib/ai/image-providers";
@@ -94,7 +95,7 @@ export async function runGenerationAction(
 
   // Claim the row before the slow call so a double-submit can't run it twice.
   const claimed = await prisma.generation.updateMany({
-    where: { id: generationId, status: { in: ["QUEUED", "FAILED"] } },
+    where: { id: generationId, status: { in: ["QUEUED", "FAILED"] }, ...scopedTo.generation(projectId) },
     data: { status: "PROCESSING", error: null },
   });
   if (claimed.count === 0) return { error: "That generation is already running" };
@@ -119,8 +120,8 @@ export async function runGenerationAction(
       },
     });
 
-    await prisma.generation.update({
-      where: { id: generationId },
+    await prisma.generation.updateMany({
+      where: { id: generationId, ...scopedTo.generation(projectId) },
       data: { status: "COMPLETED", assetId: asset.id, error: null },
     });
   } catch (err) {
@@ -128,8 +129,8 @@ export async function runGenerationAction(
     // missing key, a content rejection, a rate limit) and the attempt is kept
     // rather than deleted, so the history shows what was tried.
     const message = err instanceof Error ? err.message : "Image generation failed";
-    await prisma.generation.update({
-      where: { id: generationId },
+    await prisma.generation.updateMany({
+      where: { id: generationId, ...scopedTo.generation(projectId) },
       data: { status: "FAILED", error: message.slice(0, 1000) },
     });
     return { error: message };
@@ -152,7 +153,9 @@ export async function deleteGenerationAction(projectId: string, generationId: st
 
   // Only the attempt record is removed. The generated Asset is left in the
   // gallery — deleting it is a separate, explicit action.
-  await prisma.generation.delete({ where: { id: generationId } });
+  await prisma.generation.deleteMany({
+    where: { id: generationId, ...scopedTo.generation(projectId) },
+  });
 
   if (generation.sceneId && generation.shotId) {
     for (const path of shotPaths(projectId, generation.sceneId, generation.shotId)) {

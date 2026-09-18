@@ -4,6 +4,12 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/auth.config";
 
+/**
+ * A real bcrypt hash of a value nobody can supply, compared against when the
+ * email is unknown. Its only job is to cost the same as a genuine check.
+ */
+const DUMMY_HASH = "$2b$10$CwTycUXWue0Thq9StjUM0uJ8.e0Ej1mZQ5m5YQ3n5J9Ks8QJ8m5Wu";
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
@@ -13,15 +19,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       authorize: async (credentials) => {
-        const email = credentials?.email as string | undefined;
+        const rawEmail = credentials?.email as string | undefined;
         const password = credentials?.password as string | undefined;
-        if (!email || !password) return null;
+        if (!rawEmail || !password) return null;
 
+        // Matches how registration stores it, so capitalisation cannot lock
+        // someone out of their own account.
+        const email = rawEmail.trim().toLowerCase();
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user) return null;
 
-        const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
+        // A bcrypt comparison runs even when the account does not exist, so an
+        // unknown email and a wrong password take the same time to reject. A
+        // fast "no" would otherwise let an attacker enumerate who has accounts.
+        const hash = user?.passwordHash ?? DUMMY_HASH;
+        const valid = await bcrypt.compare(password, hash);
+        if (!user || !valid) return null;
 
         return { id: user.id, name: user.name, email: user.email };
       },

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { NOT_FOUND, missed, scopedTo } from "@/lib/authz";
 import { scheduleDaySchema, scheduleItemSchema } from "@/lib/validation";
 
 export type FormState = { error?: string } | undefined;
@@ -51,10 +52,11 @@ export async function updateScheduleDayAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.scheduleDay.update({
-    where: { id: dayId },
+  const result = await prisma.scheduleDay.updateMany({
+    where: { id: dayId, ...scopedTo.scheduleDay(projectId) },
     data: { ...parsed.data, date: new Date(parsed.data.date) },
   });
+  if (missed(result)) return NOT_FOUND;
 
   revalidatePath(`/projects/${projectId}/schedule`);
   revalidatePath(`/projects/${projectId}/schedule/${dayId}`);
@@ -63,7 +65,7 @@ export async function updateScheduleDayAction(
 
 export async function deleteScheduleDayAction(projectId: string, dayId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.scheduleDay.delete({ where: { id: dayId } });
+  await prisma.scheduleDay.deleteMany({ where: { id: dayId, ...scopedTo.scheduleDay(projectId) } });
   revalidatePath(`/projects/${projectId}/schedule`);
   redirect(`/projects/${projectId}/schedule`);
 }
@@ -105,6 +107,8 @@ export async function createScheduleItemAction(
 
 export async function deleteScheduleItemAction(projectId: string, dayId: string, itemId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.scheduleItem.delete({ where: { id: itemId } });
+  await prisma.scheduleItem.deleteMany({
+    where: { id: itemId, ...scopedTo.scheduleItem(projectId) },
+  });
   revalidatePath(`/projects/${projectId}/schedule/${dayId}`);
 }

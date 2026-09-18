@@ -2,8 +2,15 @@ import { z } from "zod";
 
 export const registerSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
-  email: z.string().email("Enter a valid email"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  // Lower-cased so one person cannot end up with two accounts that differ only
+  // in capitalisation — `User.email` is unique, and "Ravi@…" vs "ravi@…" would
+  // otherwise both be accepted and only one of them would ever sign in.
+  email: z
+    .string()
+    .email("Enter a valid email")
+    .max(320)
+    .transform((value) => value.trim().toLowerCase()),
+  password: z.string().min(8, "Password must be at least 8 characters").max(200),
 });
 
 export const projectSchema = z.object({

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { scopedTo } from "@/lib/authz";
 import { assetUploadSchema, generateImageSchema } from "@/lib/validation";
 import { deleteStoredFile, saveGeneratedImage, saveUploadedFile } from "@/lib/storage";
 import { generateImage } from "@/lib/ai/openai-image";
@@ -112,7 +113,7 @@ export async function deleteAssetAction(projectId: string, assetId: string) {
   const asset = await prisma.asset.findFirst({ where: { id: assetId, projectId } });
   if (!asset) return;
 
-  await prisma.asset.delete({ where: { id: assetId } });
+  await prisma.asset.deleteMany({ where: { id: assetId, ...scopedTo.asset(projectId) } });
   await deleteStoredFile(asset.filePath);
 
   revalidateScope(projectId, asset.sceneId ?? undefined);

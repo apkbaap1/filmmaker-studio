@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/access";
+import { NOT_FOUND, missed, scopedTo } from "@/lib/authz";
 import { shotSchema, storyboardShotSchema, temporalShotSchema } from "@/lib/validation";
 import { blockingSchema } from "@/lib/blocking";
 
@@ -102,10 +103,12 @@ export async function updateShotAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.shotListItem.update({
-    where: { id: shotId },
+  const result = await prisma.shotListItem.updateMany({
+    where: { id: shotId, sceneId, ...scopedTo.shot(projectId) },
     data: nullifyEmptyStrings(parsed.data),
   });
+  if (missed(result)) return NOT_FOUND;
+
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   revalidatePath(`/projects/${projectId}/storyboard`);
   return undefined;
@@ -113,7 +116,9 @@ export async function updateShotAction(
 
 export async function deleteShotAction(projectId: string, sceneId: string, shotId: string) {
   await requireProjectAccess(projectId, { write: true });
-  await prisma.shotListItem.delete({ where: { id: shotId } });
+  await prisma.shotListItem.deleteMany({
+    where: { id: shotId, sceneId, ...scopedTo.shot(projectId) },
+  });
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   revalidatePath(`/projects/${projectId}/storyboard`);
 }
@@ -152,10 +157,12 @@ export async function updateShotStoryboardFieldsAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  await prisma.shotListItem.update({
-    where: { id: shotId },
+  const result = await prisma.shotListItem.updateMany({
+    where: { id: shotId, sceneId, ...scopedTo.shot(projectId) },
     data: nullifyEmptyStrings(parsed.data),
   });
+  if (missed(result)) return NOT_FOUND;
+
   revalidatePath(`/projects/${projectId}/scenes/${sceneId}`);
   revalidatePath(`/projects/${projectId}/storyboard`);
   return undefined;
@@ -168,7 +175,8 @@ export async function duplicateShotAction(projectId: string, sceneId: string, sh
   // scene is renumbered here. That makes "insert directly after the source"
   // well-defined instead of appending the copy to the end of the scene.
   const shots = await prisma.shotListItem.findMany({
-    where: { sceneId },
+    // Scoped: an unscoped read here would renumber another project's scene.
+    where: { sceneId, ...scopedTo.shot(projectId) },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
 
@@ -186,8 +194,8 @@ export async function duplicateShotAction(projectId: string, sceneId: string, sh
 
   await prisma.$transaction([
     ...shots.map((s, i) =>
-      prisma.shotListItem.update({
-        where: { id: s.id },
+      prisma.shotListItem.updateMany({
+        where: { id: s.id, ...scopedTo.shot(projectId) },
         data: { order: i <= sourceIndex ? i : i + 1 },
       })
     ),
@@ -224,7 +232,7 @@ export async function updateShotBlockingAction(
   }
 
   await prisma.shotListItem.updateMany({
-    where: { id: shotId, sceneId },
+    where: { id: shotId, sceneId, ...scopedTo.shot(projectId) },
     data: { blocking: parsed.data },
   });
 
@@ -269,7 +277,7 @@ export async function updateShotTemporalAction(
   }
 
   await prisma.shotListItem.updateMany({
-    where: { id: shotId, sceneId },
+    where: { id: shotId, sceneId, ...scopedTo.shot(projectId) },
     data: nullifyEmptyStrings(parsed.data),
   });
 
@@ -291,7 +299,7 @@ export async function reorderShotsAction(
       // updateMany (not update) so the sceneId filter is enforced at the
       // database level instead of requiring a compound unique key.
       prisma.shotListItem.updateMany({
-        where: { id: shotId, sceneId },
+        where: { id: shotId, sceneId, ...scopedTo.shot(projectId) },
         data: { order: index },
       })
     )
