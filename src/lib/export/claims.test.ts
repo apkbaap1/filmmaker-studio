@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import { listProviders } from "../prompt/index.ts";
+import { listVideoProviders } from "../ai/video-providers/index.ts";
 
 /**
  * Phase 10 — the standing rule that no provider is claimed without an adapter.
@@ -16,7 +17,22 @@ import { listProviders } from "../prompt/index.ts";
 
 const SRC = path.resolve(import.meta.dirname, "..", "..");
 
-const UNIMPLEMENTED = ["seedance", "veo", "higgsfield", "runway", "luma", "pika", "sora", "kling"];
+/**
+ * Platforms with no adapter. Naming one is fine; presenting it as available is
+ * not, so every mention must sit next to wording that says it is unimplemented.
+ */
+const UNIMPLEMENTED = ["seedance", "higgsfield", "runway", "luma", "pika", "sora", "kling"];
+
+/**
+ * Platforms that now have a real adapter, and the file that implements each.
+ *
+ * Moving a name here is not a way to silence the rule above: the test below
+ * requires the adapter file to exist *and* to be registered in the provider
+ * registry, so a name can only be moved once the code genuinely backs it.
+ */
+const IMPLEMENTED: Array<{ name: string; file: string; providerId: string }> = [
+  { name: "veo", file: "lib/ai/video-providers/google-veo.ts", providerId: "google-veo" },
+];
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -51,6 +67,24 @@ describe("no provider is claimed without an adapter", () => {
           `${dir} must not contain a ${name} adapter file that nothing registers`
         );
       }
+    }
+  });
+
+  it("backs every implemented platform with a registered adapter", () => {
+    for (const { name, file, providerId } of IMPLEMENTED) {
+      assert.ok(
+        statSync(path.join(SRC, file)).isFile(),
+        `${name} is listed as implemented but ${file} does not exist`
+      );
+      const registered = listVideoProviders().map((p) => p.id);
+      assert.ok(
+        registered.includes(providerId),
+        `${name} has an adapter file but "${providerId}" is not registered: ${registered.join(", ")}`
+      );
+      assert.ok(
+        !UNIMPLEMENTED.includes(name),
+        `${name} cannot be both implemented and unimplemented`
+      );
     }
   });
 

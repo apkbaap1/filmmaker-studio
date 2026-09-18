@@ -70,7 +70,7 @@ function ftyp(): Buffer {
   return box("ftyp", Buffer.concat([Buffer.from("isom", "latin1"), u32(512), Buffer.from("isomiso2avc1mp41", "latin1")]));
 }
 
-function mp4(options: { width: number; height: number; timescale?: number; duration?: number; tracks?: Buffer[] }): Buffer {
+export function mp4(options: { width: number; height: number; timescale?: number; duration?: number; tracks?: Buffer[] }): Buffer {
   const tracks = options.tracks ?? [box("trak", tkhd(options.width, options.height))];
   return Buffer.concat([
     ftyp(),

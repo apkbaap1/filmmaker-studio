@@ -24,6 +24,17 @@ export interface VideoGenerationRequest {
   mode: VideoGenerationMode;
   /** What the filmmaker asked for. An adapter may clamp it; it must not invent one. */
   durationSeconds?: number;
+  /**
+   * Frame shape and pixel height, where the filmmaker has chosen them.
+   *
+   * Omission-by-default, like every other value in this pipeline: undefined
+   * means *not chosen*, and an adapter leaves the parameter out of its request
+   * rather than substituting a house default. An adapter that cannot honour a
+   * chosen value rejects the request; it never quietly picks the nearest one it
+   * supports.
+   */
+  aspectRatio?: string;
+  resolution?: string;
   /** Required for image-to-video, absent otherwise. */
   sourceImage?: { data: Buffer; mimeType: string };
   /**

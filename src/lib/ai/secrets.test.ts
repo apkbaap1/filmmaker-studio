@@ -15,7 +15,7 @@ import { describe, it } from "node:test";
 const SRC = path.resolve(import.meta.dirname, "..", "..");
 
 const SECRET_READ =
-  /process\.env\.(OPENAI_API_KEY|AUTH_SECRET|DATABASE_URL|S3_ACCESS_KEY_ID|S3_SECRET_ACCESS_KEY|MEDIA_URL_SECRET)/;
+  /process\.env\.(OPENAI_API_KEY|GOOGLE_API_KEY|AUTH_SECRET|DATABASE_URL|S3_ACCESS_KEY_ID|S3_SECRET_ACCESS_KEY|MEDIA_URL_SECRET)/;
 const SERVER_ONLY = /^\s*import\s+["']server-only["']/m;
 const USE_CLIENT = /^\s*["']use client["']/;
 const USE_SERVER = /^\s*["']use server["']/;

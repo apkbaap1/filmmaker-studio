@@ -6,6 +6,7 @@ import {
   assertStorableMedia,
   assertValidKey,
   buildAssetKey,
+  MAX_BYTES,
   MediaTooLargeError,
   UnsupportedMediaError,
 } from "@/lib/storage/keys";
@@ -213,3 +214,15 @@ export async function deleteStoredMedia(
 
 // Re-exported so callers keep importing their errors from the module they call.
 export { MediaTooLargeError, UnsupportedMediaError };
+
+/**
+ * The size ceilings storage enforces, re-exported for callers that must refuse
+ * an oversized transfer *before* it reaches storage — a provider adapter
+ * streaming a generated file, for instance.
+ *
+ * Re-exported rather than imported from `lib/storage/keys` directly so the
+ * media boundary stays absolute: one module reaches storage, and everything
+ * else comes through here. Sharing the constant is also what stops a caller's
+ * own ceiling drifting away from the one that actually rejects the write.
+ */
+export { MAX_BYTES };

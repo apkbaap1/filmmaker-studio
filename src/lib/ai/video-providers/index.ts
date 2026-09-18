@@ -1,22 +1,29 @@
 import type { VideoGenerationProvider } from "./types.ts";
 import { localStubVideoProvider } from "./local-stub.ts";
+import { googleVeoVideoProvider } from "./google-veo.ts";
 
 /**
  * Video-provider registry.
  *
- * No real video platform is integrated yet — no provider has been chosen for
- * this project and no credentials exist, so nothing here claims to drive
- * Seedance, Veo, Higgsfield, Runway or anything else. Adding one means writing
- * an adapter against VideoGenerationProvider and registering it below; the
- * compiler, the CinematicPromptSpec and the Shot model do not change.
+ * Two entries, and the difference between them is the one that matters:
  *
- * Until then the only entry is the local stub, and it is opt-in: set
- * VIDEO_PROVIDER=local-stub to exercise the pipeline. With nothing set,
+ *   local-stub   produces a labelled placeholder clip locally. Never evidence
+ *                of AI generation, and never billed.
+ *   google-veo   calls Google's Veo 3.1 and is billed per render.
+ *
+ * Both are opt-in through VIDEO_PROVIDER, and neither is a fallback for the
+ * other: `getVideoProvider` throws on an unknown id rather than substituting,
+ * because a silent substitution would misattribute output. With nothing set,
  * `videoGenerationAvailable()` is false and the UI says so rather than
  * pretending a clip could be produced.
+ *
+ * Adding a provider means writing an adapter against VideoGenerationProvider
+ * and registering it below; the compiler, the CinematicPromptSpec and the Shot
+ * model do not change.
  */
 const providers: Record<string, VideoGenerationProvider> = {
   [localStubVideoProvider.id]: localStubVideoProvider,
+  [googleVeoVideoProvider.id]: googleVeoVideoProvider,
 };
 
 export function configuredVideoProviderId(): string | undefined {
@@ -52,7 +59,7 @@ export function describeVideoProvider(providerId: string): {
   return { label: provider.label, kind: provider.capabilities.kind, model: provider.model };
 }
 
-export { localStubVideoProvider };
+export { localStubVideoProvider, googleVeoVideoProvider };
 export type {
   VideoGenerationMode,
   VideoGenerationProvider,
