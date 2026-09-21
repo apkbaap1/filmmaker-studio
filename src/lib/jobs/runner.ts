@@ -12,6 +12,7 @@ import {
 } from "@/lib/media";
 import { getImageProvider } from "@/lib/ai/image-providers";
 import { getVideoProvider } from "@/lib/ai/video-providers";
+import { recordProviderAttempt } from "@/lib/billing/usage";
 import { InvalidVideoError, readVideoMetadata } from "@/lib/ai/video-metadata";
 import { GenerationError, classify, shouldRetry, type FailureKind } from "./state";
 import { releaseForRetry, updateLeased, type Lease, type Db } from "./queue";
@@ -161,10 +162,61 @@ async function runImageStep(
     idempotencyKey: generation.idempotencyKey,
   });
 
+  // The call has happened and, for a real provider, has been billed. Recorded
+  // here rather than after storage, because a failure to store does not refund
+  // the generation.
+  // `?? "real"` follows the registry's own convention, and it is the safe
+  // direction here too: an adapter that forgets to declare itself is counted as
+  // billable rather than silently treated as free.
+  await recordSpend(generation, provider.id, provider.model, provider.capabilities?.kind ?? "real", db);
+
   return storeAndComplete(generation, lease, image.data, image.mimeType, "IMAGE", now, db, {
     width: image.width,
     height: image.height,
   });
+}
+
+/**
+ * Writes the spend ledger row for one provider call.
+ *
+ * Deliberately never allowed to fail the job: an accounting write that threw
+ * would turn a successful, already-paid-for generation into a retry, and the
+ * retry would be billed again. A lost row understates the ledger; a thrown one
+ * would inflate the actual bill. So it is logged and swallowed.
+ *
+ * Known limitation, recorded rather than papered over: this runs after the
+ * provider call *returns*. A call that reaches the provider and then throws —
+ * a timeout on a request the provider did in fact accept — is not recorded, so
+ * the ledger can understate spend in exactly the case the job also marks
+ * INDETERMINATE. Closing that needs a provider-side usage API to reconcile
+ * against, which no adapter here has.
+ */
+async function recordSpend(
+  generation: Generation,
+  providerId: string,
+  model: string | null | undefined,
+  providerKind: "real" | "stub",
+  db: Db
+): Promise<void> {
+  try {
+    await recordProviderAttempt(
+      {
+        generationId: generation.id,
+        projectId: generation.projectId,
+        userId: generation.createdById,
+        providerId,
+        model,
+        mode: generation.mode,
+        providerKind,
+        durationSeconds: generation.durationSeconds,
+      },
+      db
+    );
+  } catch (error) {
+    jobLog("usage-record-failed", generation, {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 // --- video: submit, let go, poll later ---------------------------------------
@@ -216,6 +268,10 @@ async function runVideoStep(
     sourceImage,
     idempotencyKey: generation.idempotencyKey,
   });
+
+  // Submitted means the render was accepted and is being paid for, whatever
+  // the poll later says. A job that fails after this point still cost money.
+  await recordSpend(generation, provider.id, provider.model, provider.capabilities.kind, db);
 
   if (!(await recordSubmission(lease, providerJobId, now, db))) return { kind: "lease-lost" };
 

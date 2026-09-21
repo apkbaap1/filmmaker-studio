@@ -110,11 +110,9 @@ enum TransitionType {
 /**
  * The durable job lifecycle. Legal transitions live in src/lib/jobs/state.ts —
  * this enum is only the vocabulary, not the rules.
- *
  * AWAITING_PROVIDER is the state that makes the worker non-blocking: the job has
  * been handed to an asynchronous provider and is waiting to be polled, holding
  * no worker and no lease in the meantime.
- *
  * CANCELLED is only reachable from QUEUED, before anything was submitted. There
  * is deliberately no cancellation of an in-flight provider job: no adapter here
  * can actually cancel one, and a button that only pretends to would be worse
@@ -131,7 +129,6 @@ enum GenerationStatus {
 
 /**
  * Why a job failed, which decides whether it is retried.
- *
  * INDETERMINATE is the honest answer to one specific situation: the worker
  * submitted to a provider and died before recording the job id, against a
  * provider that offers no idempotency key and no job lookup. The submission may
@@ -167,12 +164,14 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ownedProjects Project[]       @relation("ProjectOwner")
-  memberships   ProjectMember[]
+  ownedProjects   Project[]         @relation("ProjectOwner")
+  memberships     ProjectMember[]
+  generations     Generation[]      @relation("GenerationCreatedBy")
+  generationUsage GenerationUsage[]
 }
 
 model Project {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   title       String
   logline     String?
   description String?
@@ -185,7 +184,6 @@ model Project {
    * and never translated here: which values a given provider accepts is the
    * adapter's business, and an adapter that cannot honour a choice rejects the
    * request rather than quietly substituting a value the filmmaker never made.
-   *
    * Null means not chosen. An unchosen value is omitted from the provider
    * request entirely rather than defaulted.
    */
@@ -210,6 +208,7 @@ model Project {
   generations         Generation[]
   sequences           Sequence[]
   continuityDecisions ContinuityDecision[]
+  generationUsage     GenerationUsage[]
 }
 
 /**
@@ -450,13 +449,23 @@ model TimelineClip {
  * the Shot stays the source of truth for compiling future generations.
  */
 model Generation {
-  id        String           @id @default(cuid())
+  id        String @id @default(cuid())
   projectId String
-  sceneId   String?
-  shotId    String?
-  mode      GenerationMode   @default(IMAGE)
-  source    GenerationSource
-  status    GenerationStatus @default(QUEUED)
+
+  /**
+   * Who started this generation.
+   * Nullable because rows created before spend accounting existed genuinely do
+   * not record it, and guessing an owner for them would put someone else's
+   * spend on a real person's account. Null means *unknown*, and the spend
+   * queries report it as unattributed rather than silently dropping it.
+   */
+  createdById String?
+  createdBy   User?            @relation("GenerationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  sceneId     String?
+  shotId      String?
+  mode        GenerationMode   @default(IMAGE)
+  source      GenerationSource
+  status      GenerationStatus @default(QUEUED)
 
   /**
    * Exactly what was sent to the provider.
@@ -515,7 +524,9 @@ model Generation {
   leaseToken     String?
   leaseExpiresAt DateTime?
 
-  /** When this job next becomes eligible — retry backoff and poll scheduling. */
+  /**
+   * When this job next becomes eligible — retry backoff and poll scheduling.
+   */
   nextAttemptAt DateTime?
   lastAttemptAt DateTime?
 
@@ -545,7 +556,6 @@ model Generation {
   /**
    * The project's frame shape and resolution as they stood when this generation
    * was submitted.
-   *
    * Snapshotted rather than read through the relation for the same reason the
    * prompt is: changing the project's format later must not rewrite history and
    * make a past generation claim parameters it was never sent with.
@@ -561,6 +571,8 @@ model Generation {
    * unfulfilled request into a false record of what was produced.
    */
   requestedParams Json?
+
+  usage GenerationUsage[]
 
   error String?
 
@@ -583,7 +595,9 @@ model Generation {
 
   @@index([projectId])
   @@index([shotId])
-  /** The worker's claim query: eligible jobs, oldest first. */
+  /**
+   * The worker's claim query: eligible jobs, oldest first.
+   */
   @@index([status, nextAttemptAt])
 }
 
@@ -817,4 +831,76 @@ model BudgetLineItem {
   category BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@index([categoryId])
+}
+
+/**
+ * What one call to a paid provider actually consumed.
+ * A row per *provider attempt*, not per Generation: a job that is submitted,
+ * fails and is resubmitted was billed twice, and an accounting table that
+ * collapsed those into one row would understate the bill. This is why the
+ * ledger is separate from Generation rather than a column on it.
+ * ## Unknown cost is not zero
+ * `costMicros` is null when no rate is configured for the provider and model
+ * that ran. That is the honest representation: the application knows *what* was
+ * consumed, because it asked for it, but it does not know the price unless an
+ * operator has supplied one. Recording an unpriced call as 0 would make a real
+ * bill look free, which is the single worst failure mode for this table — so
+ * the aggregation reports priced and unpriced separately and never sums the
+ * second as nothing.
+ * Money is stored in micros (millionths of a currency unit) as an integer.
+ * Floating point is not a currency type, and a fraction of a cent per second of
+ * video is exactly the scale where it goes wrong.
+ */
+model GenerationUsage {
+  id String @id @default(cuid())
+
+  generationId String
+  generation   Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /**
+   * Null for a generation that predates attribution — unknown, not unowned.
+   */
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  providerId String
+  model      String?
+  mode       GenerationMode
+
+  /**
+   * What was consumed, in the unit the provider bills in. Measured or explicitly
+   * requested — never estimated: a video of unstated length records no seconds
+   * rather than an assumed default.
+   */
+  quantity Float
+  unit     UsageUnit
+
+  /**
+   * The rate applied, frozen here so a later price change cannot rewrite history.
+   */
+  unitCostMicros Int?
+  currency       String?
+  costMicros     Int?
+
+  /**
+   * Where the rate came from, so an unexplained number can always be traced.
+   */
+  rateSource String
+
+  occurredAt DateTime @default(now())
+
+  @@index([projectId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+enum UsageUnit {
+  IMAGE
+  VIDEO_SECOND
+  /**
+   * The provider was called but the billable quantity is not knowable here.
+   */
+  CALL
 }

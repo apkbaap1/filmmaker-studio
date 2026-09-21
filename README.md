@@ -370,9 +370,9 @@ deployable:
 |---|---|---|
 | **Asset storage** | S3-compatible object storage, local disk in development | Configure `S3_*` and run `npm run storage:migrate` |
 | **Image provider** | OpenAI gpt-image-1, implemented and tested; not yet run against the live API | A credential and network egress — see "Image generation" |
-| **Video providers** | Adapter interface + labelled local stub | A real adapter once a platform is chosen |
+| **Video providers** | Google Veo 3.1 adapter, implemented and unit-tested; **never run against the live API** — see `docs/veo-api-contract.md` | A credential in a runtime that can reach Google, then one real generation |
 | **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
-| **Billing / quotas** | Hard configurable ceilings, no accounting | Per-user spend tracking (Workstream 11.7) |
+| **Billing / quotas** | Hard ceilings, plus a per-attempt spend ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`; a UI for the totals |
 | **Export assets** | Exports reference asset ids and storage keys | Bundling media into a downloadable archive |
 | **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
 | **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |

@@ -1,5 +1,18 @@
 # Google Veo — Gemini Developer API contract
 
+> ## 11.5 LIVE GOOGLE VEO VERIFICATION — DEFERRED
+>
+> **No request from this codebase has ever reached Google.** The adapter, this
+> contract and the project-format wiring are complete and unit-tested against a
+> local server; the single real generation that would verify them has not been
+> performed, because `GOOGLE_API_KEY` has never been present in a runtime that
+> could make the call.
+>
+> Deferred pending external environment configuration. Until a real generation
+> completes successfully, Google Veo integration is **implemented, not
+> verified**, and nothing in this repository should be read as claiming
+> otherwise. Sections 3–10 below record which parts remain unverified and why.
+
 Source of truth for `src/lib/ai/video-providers/google-veo.ts`.
 Nothing here is recalled from memory. Every line cites the artifact it was read from.
 

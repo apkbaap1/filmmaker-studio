@@ -57,16 +57,24 @@ beforeEach(async () => {
   });
 });
 
+/**
+ * `startedBy` defaults to the user under test, because that is how the
+ * application creates rows: every generation records who started it. The
+ * per-user ceiling counts by that, so a fixture that omitted it would be
+ * testing a state the application cannot produce.
+ */
 async function existing(
   project: string,
   count: number,
   status: "COMPLETED" | "QUEUED" = "COMPLETED",
-  createdAt?: Date
+  createdAt?: Date,
+  startedBy: string | null = ownerId
 ) {
   for (let i = 0; i < count; i += 1) {
     await prisma.generation.create({
       data: {
         projectId: project,
+        createdById: startedBy,
         mode: "IMAGE",
         source: "STRUCTURED",
         status,
@@ -180,7 +188,25 @@ describe("the ceilings", () => {
 
   it("does not count another user's generations against this one", async () => {
     process.env.GENERATION_LIMIT_PER_USER = "3";
-    await existing(foreignProjectId, 10);
+    // Started by someone else, in their own project.
+    await existing(foreignProjectId, 10, "COMPLETED", undefined, otherUserId);
+    assert.deepEqual(await allow(), { ok: true });
+  });
+
+  it("does not count a collaborator's work on a shared project", async () => {
+    // The case the old approximation got wrong: counting every generation in
+    // every project the user could reach meant one busy collaborator could lock
+    // everyone else out of a shared project without them generating anything.
+    process.env.GENERATION_LIMIT_PER_USER = "3";
+    await existing(projectId, 10, "COMPLETED", undefined, otherUserId);
+    assert.deepEqual(await allow(), { ok: true });
+  });
+
+  it("still counts a generation whose creator is unknown against nobody", async () => {
+    // Rows predating attribution. Charging them to a known person would be
+    // worse than leaving them uncounted.
+    process.env.GENERATION_LIMIT_PER_USER = "3";
+    await existing(projectId, 10, "COMPLETED", undefined, null);
     assert.deepEqual(await allow(), { ok: true });
   });
 

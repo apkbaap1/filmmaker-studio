@@ -120,6 +120,10 @@ export async function startShotImageGenerationAction(
       projectId,
       sceneId,
       shotId,
+      // Who started it. Recorded so spend can be attributed to a person rather
+      // than approximated from project membership, which counts a collaborator's
+      // work against everyone who can see the project.
+      createdById: session.user.id,
       mode: "IMAGE",
       source: "STRUCTURED",
       status: "QUEUED",

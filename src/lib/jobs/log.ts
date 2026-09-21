@@ -28,7 +28,13 @@ export type JobEvent =
   | "failed"
   | "retry-scheduled"
   | "lease-lost"
-  | "reaped";
+  | "reaped"
+  /**
+   * The spend ledger could not be written for a call that already happened.
+   * Never fatal — see `recordSpend` in runner.ts — but it means the ledger now
+   * understates real spend, so it is worth finding in the logs.
+   */
+  | "usage-record-failed";
 
 const REDACT = /(key|secret|token|authorization|password|signature|url)/i;
 

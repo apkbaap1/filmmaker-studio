@@ -117,18 +117,22 @@ export async function checkGenerationAllowed(options: {
     };
   }
 
-  // Per user, across every project they can reach — otherwise the project cap is
-  // trivially sidestepped by making more projects.
+  // Per user, across every project — otherwise the project cap is trivially
+  // sidestepped by making more projects.
+  //
+  // Counted by who actually started each generation. This used to be
+  // approximated by counting every generation in every project the user could
+  // reach, which charged a collaborator's work against their ceiling: on a
+  // shared project, one busy editor could lock everyone else out without any of
+  // them having generated anything. Generation.createdById, added in 11.7 for
+  // spend attribution, makes the real count available.
+  //
+  // Rows from before that column existed have a null creator and so fall out of
+  // this count. That is the right way round: the alternative is charging an
+  // unknown person's spend to a known one, and the window is rolling, so those
+  // rows age out on their own.
   const userWindow = await prisma.generation.count({
-    where: {
-      createdAt: { gte: since },
-      project: {
-        OR: [
-          { ownerId: options.userId },
-          { members: { some: { userId: options.userId } } },
-        ],
-      },
-    },
+    where: { createdAt: { gte: since }, createdById: options.userId },
   });
   if (userWindow + count > limits.perUserPerWindow) {
     return {
