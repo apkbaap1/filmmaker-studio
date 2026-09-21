@@ -178,6 +178,19 @@ model Project {
   description String?
   genre       String?
   format      String?
+
+  /**
+   * The film's frame shape and delivery resolution — one decision for the whole
+   * project, not per shot. Stored as the filmmaker wrote them ("16:9", "720p")
+   * and never translated here: which values a given provider accepts is the
+   * adapter's business, and an adapter that cannot honour a choice rejects the
+   * request rather than quietly substituting a value the filmmaker never made.
+   *
+   * Null means not chosen. An unchosen value is omitted from the provider
+   * request entirely rather than defaulted.
+   */
+  aspectRatio String?
+  resolution  String?
   status      String   @default("Development")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -528,6 +541,17 @@ model Generation {
    * Requested clip length, for the modes that have one.
    */
   durationSeconds Float?
+
+  /**
+   * The project's frame shape and resolution as they stood when this generation
+   * was submitted.
+   *
+   * Snapshotted rather than read through the relation for the same reason the
+   * prompt is: changing the project's format later must not rewrite history and
+   * make a past generation claim parameters it was never sent with.
+   */
+  aspectRatio String?
+  resolution  String?
 
   /**
    * Exactly what was asked of the provider — size and any other provider-native

@@ -19,6 +19,13 @@ export const projectSchema = z.object({
   description: z.string().max(5000).optional().or(z.literal("")),
   genre: z.string().max(100).optional().or(z.literal("")),
   format: z.string().max(100).optional().or(z.literal("")),
+  // Frame shape and delivery resolution. Kept as free text rather than an enum
+  // on purpose: which values are available depends on the generation provider,
+  // and the data model must not learn any provider's vocabulary. The adapter
+  // validates what it can honour and rejects the rest, so a filmmaker is never
+  // silently given a format they did not choose.
+  aspectRatio: z.string().max(20).optional().or(z.literal("")),
+  resolution: z.string().max(20).optional().or(z.literal("")),
   status: z.string().max(50).optional().or(z.literal("")),
 });
 

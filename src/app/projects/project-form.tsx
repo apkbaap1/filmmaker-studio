@@ -18,6 +18,8 @@ export function ProjectForm({
     description?: string;
     genre?: string;
     format?: string;
+    aspectRatio?: string | null;
+    resolution?: string | null;
     status?: string;
   };
   submitLabel: string;
@@ -43,6 +45,22 @@ export function ProjectForm({
           </Field>
           <Field label="Format">
             <Input name="format" defaultValue={defaultValues?.format} placeholder="Feature, Short, Series…" />
+          </Field>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Aspect ratio">
+            <Input
+              name="aspectRatio"
+              defaultValue={defaultValues?.aspectRatio ?? ""}
+              placeholder="16:9, 9:16…"
+            />
+          </Field>
+          <Field label="Delivery resolution">
+            <Input
+              name="resolution"
+              defaultValue={defaultValues?.resolution ?? ""}
+              placeholder="720p, 1080p, 4k…"
+            />
           </Field>
         </div>
         <Field label="Status">

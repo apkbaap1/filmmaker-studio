@@ -15,6 +15,8 @@ function parseProjectForm(formData: FormData) {
     description: formData.get("description") ?? "",
     genre: formData.get("genre") ?? "",
     format: formData.get("format") ?? "",
+    aspectRatio: formData.get("aspectRatio") ?? "",
+    resolution: formData.get("resolution") ?? "",
     status: formData.get("status") ?? "",
   });
 }

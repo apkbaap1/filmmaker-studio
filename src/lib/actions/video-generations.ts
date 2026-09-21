@@ -114,6 +114,14 @@ export async function startShotVideoGenerationAction(
     select: { durationSeconds: true },
   });
 
+  // The film's format, read once and frozen onto the row below. Read here
+  // rather than in the worker so that changing the project's format later
+  // cannot rewrite what an already-submitted generation was sent with.
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { aspectRatio: true, resolution: true },
+  });
+
   const submitted = parsed.data.prompt;
   const generation = await prisma.generation.create({
     data: {
@@ -131,6 +139,8 @@ export async function startShotVideoGenerationAction(
       promptProviderId: resolved.compiled.providerId,
       requestedParams: {
         durationSeconds: shot?.durationSeconds ?? null,
+        aspectRatio: project?.aspectRatio ?? null,
+        resolution: project?.resolution ?? null,
         providerKind: getVideoProvider(providerId).capabilities.kind,
         mode,
       } as Prisma.InputJsonValue,
@@ -138,6 +148,11 @@ export async function startShotVideoGenerationAction(
       // Carried from the shot, never invented: a shot with no stated duration
       // submits none and lets the provider use its own default.
       durationSeconds: shot?.durationSeconds ?? null,
+      // Carried from the project's format, never invented: a project with no
+      // stated frame shape or resolution submits neither, and the provider
+      // applies its own default rather than one chosen here.
+      aspectRatio: project?.aspectRatio ?? null,
+      resolution: project?.resolution ?? null,
       sourceAssetId: mode === "IMAGE_TO_VIDEO" ? sourceAssetId : null,
     },
   });

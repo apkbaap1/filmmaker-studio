@@ -211,6 +211,8 @@ async function runVideoStep(
     prompt: generation.promptUsed,
     mode: generation.mode === "IMAGE_TO_VIDEO" ? "image-to-video" : "text-to-video",
     durationSeconds: generation.durationSeconds ?? undefined,
+    aspectRatio: generation.aspectRatio ?? undefined,
+    resolution: generation.resolution ?? undefined,
     sourceImage,
     idempotencyKey: generation.idempotencyKey,
   });
