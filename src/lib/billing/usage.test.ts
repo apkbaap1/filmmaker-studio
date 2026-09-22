@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 
 const { rateFor, costMicrosFor, configuredRates } = await import("./rates.ts");
 const { quantityFor, recordProviderAttempt, spendFor } = await import("./usage.ts");
+type AttemptFacts = Parameters<typeof quantityFor>[0];
 
 /**
  * Spend accounting.
@@ -70,18 +71,23 @@ beforeEach(async () => {
   await prisma.generationUsage.deleteMany({ where: { projectId } });
 });
 
-const veoFacts = {
+const veoFacts: AttemptFacts = {
   generationId: "",
   projectId: "",
   userId: "",
   providerId: "google-veo",
   model: "veo-3.1-generate-preview",
-  mode: "VIDEO" as const,
-  providerKind: "real" as const,
+  mode: "VIDEO",
+  providerKind: "real",
   durationSeconds: 8,
 };
 
-function facts(overrides: Partial<typeof veoFacts> = {}) {
+/**
+ * Typed as AttemptFacts rather than inferred from the literal above, so an
+ * override may legitimately be a different mode, kind or null duration — which
+ * is exactly what several of these tests are for.
+ */
+function facts(overrides: Partial<AttemptFacts> = {}): AttemptFacts {
   return { ...veoFacts, generationId, projectId, userId, ...overrides };
 }
 

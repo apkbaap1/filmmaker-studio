@@ -2,7 +2,7 @@ import "server-only";
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma as defaultPrisma } from "@/lib/prisma";
-import { costMicrosFor, rateFor, type UsageUnit } from "./rates.ts";
+import { configuredRates, costMicrosFor, rateFor, type UsageUnit } from "./rates.ts";
 
 /**
  * The spend ledger: one row per call to a paid provider.
@@ -185,4 +185,213 @@ export async function spendFor(
     spend.pricedCalls += 1;
   }
   return spend;
+}
+
+// --- reporting ---------------------------------------------------------------
+
+export interface UsageGroup {
+  providerId: string;
+  model: string | null;
+  unit: UsageUnit;
+  /** Attempts in this group. */
+  calls: number;
+  /** Units consumed — seconds, images. Deliberately kept apart from cost. */
+  quantity: number;
+  currency: string | null;
+  /** Null when this group could not be priced. Never 0 standing in for unknown. */
+  costMicros: number | null;
+  unpricedCalls: number;
+}
+
+/**
+ * Usage grouped by what produced it.
+ *
+ * Grouped in memory rather than with a SQL aggregate, because the priced and
+ * unpriced halves of a group have to stay distinguishable: a `SUM(costMicros)`
+ * would silently treat the unpriced rows as zero, which is the exact error this
+ * whole subsystem exists to avoid. The row counts here are small — one per paid
+ * call — so the tradeoff is entirely in favour of being correct.
+ */
+export async function usageBreakdown(
+  scope: { projectId?: string; userId?: string; since?: Date },
+  db: Db = defaultPrisma
+): Promise<UsageGroup[]> {
+  if (!scope.projectId && !scope.userId) return [];
+
+  const rows = await db.generationUsage.findMany({
+    where: {
+      ...(scope.projectId ? { projectId: scope.projectId } : {}),
+      ...(scope.userId ? { userId: scope.userId } : {}),
+      ...(scope.since ? { occurredAt: { gte: scope.since } } : {}),
+    },
+    select: {
+      providerId: true,
+      model: true,
+      unit: true,
+      quantity: true,
+      currency: true,
+      costMicros: true,
+    },
+  });
+
+  const groups = new Map<string, UsageGroup>();
+  for (const row of rows) {
+    const key = `${row.providerId}|${row.model ?? ""}|${row.unit}|${row.currency ?? ""}`;
+    const group =
+      groups.get(key) ??
+      {
+        providerId: row.providerId,
+        model: row.model,
+        unit: row.unit as UsageUnit,
+        calls: 0,
+        quantity: 0,
+        currency: row.currency,
+        costMicros: null,
+        unpricedCalls: 0,
+      };
+
+    group.calls += 1;
+    group.quantity += row.quantity;
+    if (row.costMicros === null) {
+      group.unpricedCalls += 1;
+    } else {
+      group.costMicros = (group.costMicros ?? 0) + row.costMicros;
+    }
+    groups.set(key, group);
+  }
+
+  // Most-used first, so the expensive thing is at the top where it is noticed.
+  return [...groups.values()].sort((a, b) => b.calls - a.calls);
+}
+
+export interface AttemptRow {
+  id: string;
+  generationId: string;
+  occurredAt: Date;
+  providerId: string;
+  model: string | null;
+  mode: string;
+  quantity: number;
+  unit: UsageUnit;
+  currency: string | null;
+  costMicros: number | null;
+  rateSource: string;
+  startedBy: { id: string; name: string } | null;
+}
+
+/**
+ * The individual calls, newest first.
+ *
+ * Capped, because this is a ledger that grows forever and a page that tries to
+ * render all of it will eventually stop loading. The totals above come from the
+ * full table, so a truncated list never understates the summary.
+ */
+export async function recentAttempts(
+  scope: { projectId?: string; userId?: string; since?: Date; limit?: number },
+  db: Db = defaultPrisma
+): Promise<AttemptRow[]> {
+  if (!scope.projectId && !scope.userId) return [];
+
+  const rows = await db.generationUsage.findMany({
+    where: {
+      ...(scope.projectId ? { projectId: scope.projectId } : {}),
+      ...(scope.userId ? { userId: scope.userId } : {}),
+      ...(scope.since ? { occurredAt: { gte: scope.since } } : {}),
+    },
+    orderBy: { occurredAt: "desc" },
+    take: Math.min(scope.limit ?? 50, 200),
+    select: {
+      id: true,
+      generationId: true,
+      occurredAt: true,
+      providerId: true,
+      model: true,
+      mode: true,
+      quantity: true,
+      unit: true,
+      currency: true,
+      costMicros: true,
+      rateSource: true,
+      // Only the name: an email is contact data and has no business on a
+      // spend report that every project member can open.
+      user: { select: { id: true, name: true } },
+    },
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    generationId: row.generationId,
+    occurredAt: row.occurredAt,
+    providerId: row.providerId,
+    model: row.model,
+    mode: row.mode as string,
+    quantity: row.quantity,
+    unit: row.unit as UsageUnit,
+    currency: row.currency,
+    costMicros: row.costMicros,
+    rateSource: row.rateSource,
+    startedBy: row.user ? { id: row.user.id, name: row.user.name } : null,
+  }));
+}
+
+export interface PersonSpend {
+  userId: string | null;
+  name: string;
+  calls: number;
+  pricedMicros: Record<string, number>;
+  unpricedCalls: number;
+}
+
+/**
+ * Who in this project spent what.
+ *
+ * Generations whose creator is unknown are kept as their own row rather than
+ * dropped or attributed to someone convenient — the same rule the ledger
+ * follows everywhere else.
+ */
+export async function spendByPerson(
+  scope: { projectId: string; since?: Date },
+  db: Db = defaultPrisma
+): Promise<PersonSpend[]> {
+  const rows = await db.generationUsage.findMany({
+    where: {
+      projectId: scope.projectId,
+      ...(scope.since ? { occurredAt: { gte: scope.since } } : {}),
+    },
+    select: {
+      userId: true,
+      currency: true,
+      costMicros: true,
+      user: { select: { name: true } },
+    },
+  });
+
+  const people = new Map<string, PersonSpend>();
+  for (const row of rows) {
+    const key = row.userId ?? "";
+    const person =
+      people.get(key) ??
+      {
+        userId: row.userId,
+        name: row.user?.name ?? "Unknown",
+        calls: 0,
+        pricedMicros: {},
+        unpricedCalls: 0,
+      };
+
+    person.calls += 1;
+    if (row.costMicros === null || row.currency === null) {
+      person.unpricedCalls += 1;
+    } else {
+      person.pricedMicros[row.currency] = (person.pricedMicros[row.currency] ?? 0) + row.costMicros;
+    }
+    people.set(key, person);
+  }
+
+  return [...people.values()].sort((a, b) => b.calls - a.calls);
+}
+
+/** Whether any rate at all is configured, for the UI's "why is this unpriced" note. */
+export function pricingIsConfigured(): boolean {
+  return configuredRates().size > 0;
 }
