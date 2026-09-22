@@ -213,6 +213,19 @@ describe("the usage page's boundary", () => {
     }
   });
 
+  it("shows an empty ledger as empty rather than as a page of zeros", () => {
+    assert.match(page, /spend\.totalCalls === 0/);
+    assert.match(page, /NoUsageYet/);
+  });
+
+  it("derives the usage total from the same groups as the breakdown", () => {
+    // Passed in rather than queried again, so the headline figure cannot drift
+    // away from the table underneath it.
+    assert.match(page, /<SpendSummary[^>]*groups=\{groups\}/);
+    // Per unit, never across units: seconds plus images is not a total.
+    assert.match(views, /totals\.set\(group\.unit/);
+  });
+
   it("never prints a bare zero in place of an unknown cost", () => {
     // The formatter is the single place cost becomes text, and it has to branch
     // on null before it can format anything.

@@ -37,19 +37,49 @@ function cost(costMicros: number | null, currency: string | null) {
 
 // --- summary -----------------------------------------------------------------
 
+/**
+ * Totals what was consumed, per unit.
+ *
+ * Never across units: adding video seconds to images would produce a number
+ * that looks like a total and means nothing. Derived from the groups the page
+ * already fetched rather than from another query, so the figure cannot drift
+ * away from the breakdown below it.
+ */
+function totalsByUnit(groups: UsageGroup[]): Array<{ unit: string; quantity: number }> {
+  const totals = new Map<string, number>();
+  for (const group of groups) {
+    totals.set(group.unit, (totals.get(group.unit) ?? 0) + group.quantity);
+  }
+  return [...totals.entries()].map(([unit, quantity]) => ({ unit, quantity }));
+}
+
 export function SpendSummary({
   spend,
+  groups,
   pricingConfigured,
 }: {
   spend: Spend;
+  groups: UsageGroup[];
   pricingConfigured: boolean;
 }) {
   const currencies = Object.entries(spend.pricedMicros);
+  const usage = totalsByUnit(groups);
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Paid attempts" value={String(spend.totalCalls)} hint="Calls to a billed provider" />
+        <Stat
+          label="Usage"
+          value={
+            usage.length === 0
+              ? "—"
+              : usage
+                  .map((u) => `${u.quantity.toLocaleString()} ${unitLabel(u.unit, u.quantity)}`)
+                  .join(" · ")
+          }
+          hint="What was consumed — not a cost"
+        />
         <Stat
           label="Priced"
           value={
@@ -227,6 +257,25 @@ export function SpendByPerson({ people }: { people: PersonSpend[] }) {
 
 // --- the individual calls ----------------------------------------------------
 
+/**
+ * The whole-page empty state.
+ *
+ * An empty ledger genuinely means nothing was spent, so unlike the error state
+ * this one is safe to state plainly — but it still says *why* it might be
+ * empty, because "no paid generations" and "generations ran but were not
+ * recorded" would otherwise look identical to someone reading the screen.
+ */
+export function NoUsageYet() {
+  return (
+    <Card className="p-0">
+      <EmptyState
+        title="No paid generations yet"
+        description="Nothing in this project has called a billed provider. The local stub costs nothing and is not a billable event, so it is never recorded here."
+      />
+    </Card>
+  );
+}
+
 export function RecentAttempts({
   attempts,
   projectId,
@@ -234,16 +283,7 @@ export function RecentAttempts({
   attempts: AttemptRow[];
   projectId: string;
 }) {
-  if (attempts.length === 0) {
-    return (
-      <Card className="p-0">
-        <EmptyState
-          title="No paid generations yet"
-          description="Calls to a billed provider are recorded here. The local stub costs nothing and is not a billable event, so it never appears."
-        />
-      </Card>
-    );
-  }
+  if (attempts.length === 0) return null;
 
   return (
     <Card className="p-0">

@@ -7,7 +7,13 @@ import {
   spendFor,
   usageBreakdown,
 } from "@/lib/billing/usage";
-import { RecentAttempts, SpendByPerson, SpendSummary, UsageByProvider } from "./usage-views";
+import {
+  NoUsageYet,
+  RecentAttempts,
+  SpendByPerson,
+  SpendSummary,
+  UsageByProvider,
+} from "./usage-views";
 
 /**
  * Generation spend for one project.
@@ -45,10 +51,16 @@ export default async function UsagePage({
         subtitle="What every paid provider call consumed, and what it cost where a rate is configured."
       />
 
-      <SpendSummary spend={spend} pricingConfigured={configured} />
-      <UsageByProvider groups={groups} />
-      <SpendByPerson people={people} />
-      <RecentAttempts attempts={attempts} projectId={projectId} />
+      {spend.totalCalls === 0 ? (
+        <NoUsageYet />
+      ) : (
+        <>
+          <SpendSummary spend={spend} groups={groups} pricingConfigured={configured} />
+          <UsageByProvider groups={groups} />
+          <SpendByPerson people={people} />
+          <RecentAttempts attempts={attempts} projectId={projectId} />
+        </>
+      )}
     </div>
   );
 }
