@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireProjectAccess } from "@/lib/access";
+import { bundleStream } from "@/lib/export/bundle";
 import { buildExportPackage } from "@/lib/export/build";
 import { exportCsv } from "@/lib/export/csv";
 import { exportPdf } from "@/lib/export/pdf";
@@ -27,6 +28,31 @@ export async function GET(
     case "csv":
       // A BOM so Excel opens UTF-8 correctly instead of mangling accents.
       return download(`﻿${exportCsv(pkg)}`, `${stem}-shot-list.csv`, "text/csv; charset=utf-8");
+    case "bundle": {
+      // Streamed rather than buffered: a production's media can be gigabytes,
+      // and the whole point of the bundle is that it carries the footage.
+      const chunks = bundleStream(projectId);
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          const { value, done } = await chunks.next();
+          if (done) controller.close();
+          else controller.enqueue(new Uint8Array(value));
+        },
+        async cancel() {
+          // A browser that stops the download should not leave the generator
+          // holding a storage read open.
+          await chunks.return(undefined as never);
+        },
+      });
+
+      return new NextResponse(body, {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${stem}-bundle.zip"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
     case "pdf": {
       const bytes = await exportPdf(pkg);
       return new NextResponse(Buffer.from(bytes), {

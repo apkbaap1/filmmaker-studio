@@ -111,6 +111,43 @@ export async function signedUrlForAsset(
   });
 }
 
+/**
+ * Every asset in a project, as already-authorized handles.
+ *
+ * The precondition is in the name and enforced by the caller: this is for code
+ * that has *already* passed `requireProjectAccess` for this exact project id,
+ * which is the same check `authorizeAsset` performs per asset. Re-deriving it
+ * once per asset would mean a session lookup and a join for every file in a
+ * bundle, to reach the conclusion the route already reached.
+ *
+ * A row whose storage key is malformed is left out rather than returned, for
+ * the same reason `authorizeAsset` refuses one: a bad key must never reach a
+ * storage provider, however it got into the database.
+ */
+export async function listProjectAssets(projectId: string): Promise<AuthorizedAsset[]> {
+  const assets = await prisma.asset.findMany({
+    where: { projectId },
+    select: {
+      id: true,
+      projectId: true,
+      storageProvider: true,
+      storageKey: true,
+      mimeType: true,
+      fileSize: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return assets.filter((asset) => {
+    try {
+      assertValidKey(asset.storageKey);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** Reads an asset's bytes server-side. Same rule: authorize first, then read. */
 export async function readAssetBytes(asset: AuthorizedAsset): Promise<Buffer> {
   return storageFor(asset.storageProvider).get(asset.storageKey);

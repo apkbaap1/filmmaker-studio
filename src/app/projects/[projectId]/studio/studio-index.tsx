@@ -105,7 +105,8 @@ export function StudioIndex({
         <div className="flex flex-wrap items-center gap-2">
           {(
             [
-              ["json", "JSON package", "Complete structured record"],
+              ["bundle", "Full bundle (.zip)", "Everything, including the media files themselves"],
+              ["json", "JSON package", "Complete structured record — pointers to media, not the media"],
               ["csv", "CSV shot list", "Production breakdown"],
               ["pdf", "PDF report", "Human-readable report"],
             ] as Array<[string, string, string]>
@@ -117,7 +118,8 @@ export function StudioIndex({
             </a>
           ))}
           <span className="text-xs text-muted">
-            Exports read the project; they never change a shot&rsquo;s stored values.
+            Exports read the project; they never change a shot&rsquo;s stored values. The bundle
+            carries the asset files; the other three reference them by id and storage key.
           </span>
         </div>
       </Card>

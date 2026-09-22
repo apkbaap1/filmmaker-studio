@@ -1,10 +1,10 @@
 # Filmmaker Studio — project status
 
-**As of commit `5bdbe84`** (30 commits, branch `main`).
+**As of commit `dfb1d95`+ (Export Asset Bundling), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **703 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **738 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 > Keep this file current. It exists because the original planning history was
@@ -74,6 +74,7 @@ Reconstructed from `git log --reverse`:
 | 11.4-R | Real-provider verification harness — **verification still pending** |
 | 11.5 | Google Veo 3.1 video provider — **live verification deferred** |
 | 11.7 | Generation spend accounting + spend UI |
+| 12.1 | Export asset bundling — a ZIP carrying the media, not pointers |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -118,6 +119,13 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
 - **Spend accounting + UI** (11.7) — per-attempt ledger attributed to the user
   who started each generation; usage and cost kept as separate concepts;
   unpriced calls reported as unpriced, never as zero.
+- **Export asset bundling** (12.1) — a streaming ZIP containing the media files
+  themselves alongside `manifest.json`, `shot-list.csv`,
+  `production-report.pdf`, `ASSETS.txt` and `README.txt`. Hand-written STORE-only
+  ZIP writer (media is already compressed, so deflate buys nothing and costs a
+  dependency), verified against Python's `zipfile` and the `unzip` binary. A
+  missing or oversized asset is recorded in the manifest with a reason rather
+  than silently dropped, and the bundle still completes.
 
 ---
 
@@ -135,8 +143,6 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
 
 ## 5. NOT IMPLEMENTED
 
-- **Export asset bundling** — exports reference asset ids and storage keys, so
-  a delivered export is pointers, not footage.
 - **Timeline transitions that affect duration** — type and length are stored as
   edit metadata; a dissolve does not actually shorten the ruler.
 - **Audio** — shot-level dialogue/SFX/music are text fields. No audio tracks,
@@ -206,6 +212,8 @@ src/lib/
   generation-limits.ts      hard attempt ceilings
   timeline.ts, blocking.ts, continuity.ts, diff.ts
   export/                   build, csv, pdf, types
+    zip.ts                  STORE-only streaming ZIP writer
+    bundle.ts               the production bundle: media + manifest
 
 scripts/                    worker + 9 verification/migration scripts
 docs/                       veo-api-contract.md, PROJECT_STATUS.md
@@ -284,7 +292,8 @@ functionality, no build errors, no lint errors, no type errors.
 Real debt, honestly stated:
 
 1. **Two provider integrations are unverified against their live APIs.** The
-   largest risk in the codebase.
+   largest risk in the codebase. Deferred by decision while the remaining
+   provider-independent features are completed.
 2. **`next build` does not typecheck test files.** Type errors in tests have
    shipped green twice. `tsc --noEmit` must be run separately — it is not
    wired into any npm script.
@@ -337,33 +346,33 @@ Ordered by risk retired per unit of effort.
 3. Wire `tsc --noEmit` into `npm test` or a `typecheck` script, and add CI.
 
 **B. Make the output deliverable**
-4. Export asset bundling — without it an export is pointers, not footage. This
-   is the biggest gap between "impressive demo" and "usable tool".
-5. Image-to-video from a generated still, end to end in the UI.
+4. ~~Export asset bundling~~ — **done** (12.1).
+5. Timeline transitions that affect duration.
+6. Audio tracks.
+7. Image-to-video from a generated still, end to end in the UI.
 
 **C. Make it safe to expose to other people**
-6. Spend ceilings, not just attempt ceilings.
-7. Collaborator invite flow.
-8. Deployment: managed Postgres, S3 bucket, worker process, `AUTH_URL`,
-   password reset.
+8. Spend ceilings, not just attempt ceilings.
+9. Collaborator invite flow and project permissions.
+10. Deployment: managed Postgres, S3 bucket, worker process, `AUTH_URL`,
+    password reset.
 
-**D. Depth**
-9. Timeline transitions that actually affect duration.
-10. Audio tracks, waveforms, J/L cuts.
+**D. Depth and hardening**
 11. A second provider of each kind, to prove the adapter seams hold.
+12. Wire `tsc --noEmit` into the validation pipeline; add CI.
+13. Server-action test coverage.
 
 ---
 
 ## The single next task
 
-**Run one real Google Veo generation through the production path.**
+**Timeline transitions that affect duration.**
 
-Everything is built and waiting; only the credential is missing. It is the
-largest unverified claim in the project, it blocks nothing else from being
-built but weakens every statement about video generation until it is done, and
-it is roughly ten minutes of work once `GOOGLE_API_KEY` is present in a runtime
-that can reach Google.
+Export asset bundling is done. The next provider-independent feature in the
+agreed order is transitions: type and length are stored as edit metadata today,
+but a dissolve does not shorten the ruler, so the timeline's total runtime is
+wrong whenever a transition is set. It is pure logic in `src/lib/timeline.ts`
+with an existing test suite to extend, and it needs no credential.
 
-If the environment cannot be made to carry the variable, the next task instead
-is **Export asset bundling** — the largest genuinely-missing feature, and
-entirely independent of any credential.
+Live provider verification (Veo, OpenAI) remains deferred by decision, not by
+blockage.
