@@ -12,7 +12,7 @@ import {
 } from "@/lib/prompt";
 import { getImageProvider } from "@/lib/ai/image-providers";
 import { configuredVideoProviderId, getVideoProvider, localStubVideoProvider } from "@/lib/ai/video-providers";
-import { layOutClips, resolveClipAsset } from "@/lib/timeline";
+import { layOutClips, resolveClipAsset, type TransitionKind } from "@/lib/timeline";
 import {
   analyseContinuity,
   type AnalysisInput,
@@ -246,7 +246,7 @@ function buildTimeline(
       order: number;
       inPointSeconds: number;
       outPointSeconds: number | null;
-      transition: string | null;
+      transition: TransitionKind | null;
       transitionDurationSeconds: number | null;
       selectedAssetId: string | null;
     }>;
@@ -270,6 +270,8 @@ function buildTimeline(
   return {
     sequenceName: sequence.name,
     totalSeconds: layout.totalSeconds,
+    straightCutSeconds: layout.straightCutSeconds,
+    overlapSeconds: layout.overlapSeconds,
     clips: layout.clips.map((entry) => ({
       shotId: entry.clip.shotId,
       shotNumber: shotsById.get(entry.clip.shotId)?.shotNumber ?? "—",
@@ -281,6 +283,11 @@ function buildTimeline(
       endSeconds: entry.endSeconds,
       transition: entry.clip.transition,
       transitionDurationSeconds: entry.clip.transitionDurationSeconds,
+      // What the transition actually did, as opposed to what was asked for. An
+      // export that reported the stated length would describe an edit that does
+      // not exist whenever there was not enough material for it.
+      transitionEffectiveSeconds: entry.transition?.effectiveSeconds ?? null,
+      overlapSeconds: entry.overlapSeconds,
       selectedAssetId: entry.clip.selectedAssetId,
     })),
   };

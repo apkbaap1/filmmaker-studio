@@ -128,7 +128,12 @@ export interface ExportAsset {
 
 export interface ExportTimeline {
   sequenceName: string;
+  /** The real runtime, with overlapping transitions removed. */
   totalSeconds: number;
+  /** What the same clips would run with every boundary a straight cut. */
+  straightCutSeconds: number;
+  /** The difference: seconds played once instead of twice. */
+  overlapSeconds: number;
   clips: Array<{
     shotId: string;
     shotNumber: string;
@@ -140,7 +145,12 @@ export interface ExportTimeline {
     endSeconds: number;
     /** Null means no edit was specified — a plain boundary, not a cut chosen. */
     transition: string | null;
+    /** The stated length. What it actually did is the two fields below. */
     transitionDurationSeconds: number | null;
+    /** How long it ran, after the material on either side limited it. */
+    transitionEffectiveSeconds: number | null;
+    /** How much it shortened the edit. Non-zero only for a dissolve. */
+    overlapSeconds: number;
     selectedAssetId: string | null;
   }>;
 }

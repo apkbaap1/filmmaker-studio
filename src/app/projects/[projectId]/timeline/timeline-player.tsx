@@ -13,26 +13,90 @@ import type { AssetRef, ShotRef } from "./types";
  * its storyboard frame, otherwise a slate with the shot's own details. A shot
  * with nothing generated is a normal state here, not a gap — the point is to see
  * the scene's progression, and a storyboard frame carries that perfectly well.
+ *
+ * Two layers rather than one, because a dissolve really is two clips playing at
+ * once. The incoming layer sits on top at the mix's own progress, so the
+ * viewport shows the transition the ruler has already been shortened for. A
+ * viewport that cut on a boundary the ruler says is a two-second mix would be
+ * the two halves of this feature disagreeing with each other.
  */
+
+export interface PlayerLayer {
+  shot: ShotRef | undefined;
+  asset: AssetRef | undefined;
+  /** Seconds into the clip's used range. */
+  offsetSeconds: number;
+  /** Where the clip's used range starts in the source. */
+  inPointSeconds: number;
+}
+
 export function TimelinePlayer({
   projectId,
-  shot,
-  asset,
-  offsetSeconds,
-  inPointSeconds,
+  layer,
+  incoming,
+  mixProgress,
   playing,
   playheadSeconds,
   totalSeconds,
 }: {
   projectId: string;
-  shot: ShotRef | undefined;
-  asset: AssetRef | undefined;
-  offsetSeconds: number;
-  inPointSeconds: number;
+  layer: PlayerLayer;
+  /** The clip mixing in over `layer`. Present only inside a dissolve. */
+  incoming?: PlayerLayer;
+  /** 0 at the dissolve's first frame, 1 at its last. */
+  mixProgress: number;
   playing: boolean;
   playheadSeconds: number;
   totalSeconds: number;
 }) {
+  // Past the midpoint the incoming shot is the one being read, so it is the one
+  // the badge should name.
+  const front = incoming && mixProgress >= 0.5 ? incoming : layer;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-black">
+      <div className="relative flex aspect-video items-center justify-center">
+        <Surface projectId={projectId} layer={layer} playing={playing} />
+
+        {incoming && (
+          <div
+            className="absolute inset-0"
+            style={{ opacity: mixProgress }}
+            aria-hidden={mixProgress < 0.5}
+          >
+            <Surface projectId={projectId} layer={incoming} playing={playing} />
+          </div>
+        )}
+
+        <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 font-mono text-xs text-white">
+          {formatTimecode(playheadSeconds)} / {formatTimecode(totalSeconds)}
+        </div>
+        {front.shot && (
+          <div className="pointer-events-none absolute right-2 top-2 flex gap-1">
+            <Badge tone="accent">Shot {front.shot.shotNumber}</Badge>
+            {incoming && <Badge tone="accent">dissolve {Math.round(mixProgress * 100)}%</Badge>}
+            {!front.asset && <Badge>no visual</Badge>}
+            {front.asset && !front.asset.mimeType.startsWith("video/") && (
+              <Badge>storyboard frame</Badge>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One layer's picture: the media if there is any, otherwise the shot's slate. */
+function Surface({
+  projectId,
+  layer,
+  playing,
+}: {
+  projectId: string;
+  layer: PlayerLayer;
+  playing: boolean;
+}) {
+  const { shot, asset, offsetSeconds, inPointSeconds } = layer;
   const videoRef = useRef<HTMLVideoElement>(null);
   const isVideo = Boolean(asset?.mimeType.startsWith("video/"));
 
@@ -53,64 +117,57 @@ export function TimelinePlayer({
     else video.pause();
   }, [isVideo, offsetSeconds, inPointSeconds, playing, asset?.id]);
 
-  return (
-    <div className="overflow-hidden rounded-lg border border-border bg-black">
-      <div className="relative flex aspect-video items-center justify-center">
-        {asset && isVideo ? (
-          <video
-            ref={videoRef}
-            key={asset.id}
-            src={`/api/assets/${asset.id}/file`}
-            muted
-            playsInline
-            className="h-full w-full object-contain"
-            onLoadedMetadata={(e) => {
-              // The browser has decoded the file, so these are measurements
-              // rather than guesses. Recorded once so the ruler can use the
-              // clip's real length.
-              const el = e.currentTarget;
-              if (asset.durationSeconds && asset.width) return;
-              if (!Number.isFinite(el.duration) || el.duration <= 0) return;
-              void recordAssetMediaInfoAction(projectId, asset.id, {
-                durationSeconds: el.duration,
-                width: el.videoWidth,
-                height: el.videoHeight,
-              });
-            }}
-          />
-        ) : asset ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`/api/assets/${asset.id}/file`}
-            alt={asset.caption ?? "Storyboard frame"}
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="px-6 text-center">
-            <p className="font-mono text-sm text-muted">
-              {shot ? `SHOT ${shot.shotNumber}` : "No clip under the playhead"}
-            </p>
-            {shot && (
-              <>
-                <p className="mt-1 text-sm text-foreground">{shot.shotType}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {[shot.cameraAngle, shot.cameraMovement, shot.lens].filter(Boolean).join(" · ") ||
-                    "Nothing generated for this shot yet"}
-                </p>
-              </>
-            )}
-          </div>
-        )}
+  if (asset && isVideo) {
+    return (
+      <video
+        ref={videoRef}
+        key={asset.id}
+        src={`/api/assets/${asset.id}/file`}
+        muted
+        playsInline
+        className="h-full w-full object-contain"
+        onLoadedMetadata={(e) => {
+          // The browser has decoded the file, so these are measurements rather
+          // than guesses. Recorded once so the ruler can use the clip's real
+          // length.
+          const el = e.currentTarget;
+          if (asset.durationSeconds && asset.width) return;
+          if (!Number.isFinite(el.duration) || el.duration <= 0) return;
+          void recordAssetMediaInfoAction(projectId, asset.id, {
+            durationSeconds: el.duration,
+            width: el.videoWidth,
+            height: el.videoHeight,
+          });
+        }}
+      />
+    );
+  }
 
-        <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 font-mono text-xs text-white">
-          {formatTimecode(playheadSeconds)} / {formatTimecode(totalSeconds)}
-        </div>
+  if (asset) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`/api/assets/${asset.id}/file`}
+        alt={asset.caption ?? "Storyboard frame"}
+        className="h-full w-full object-contain"
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-black px-6 text-center">
+      <div>
+        <p className="font-mono text-sm text-muted">
+          {shot ? `SHOT ${shot.shotNumber}` : "No clip under the playhead"}
+        </p>
         {shot && (
-          <div className="pointer-events-none absolute right-2 top-2 flex gap-1">
-            <Badge tone="accent">Shot {shot.shotNumber}</Badge>
-            {!asset && <Badge>no visual</Badge>}
-            {asset && !isVideo && <Badge>storyboard frame</Badge>}
-          </div>
+          <>
+            <p className="mt-1 text-sm text-foreground">{shot.shotType}</p>
+            <p className="mt-1 text-xs text-muted">
+              {[shot.cameraAngle, shot.cameraMovement, shot.lens].filter(Boolean).join(" · ") ||
+                "Nothing generated for this shot yet"}
+            </p>
+          </>
         )}
       </div>
     </div>

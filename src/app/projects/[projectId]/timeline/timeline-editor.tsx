@@ -13,7 +13,7 @@ import {
 } from "@/lib/timeline";
 import { addClipAction, populateSequenceAction, reorderClipsAction } from "@/lib/actions/timeline";
 import { ClipInspector, TRANSITION_LABEL } from "./clip-inspector";
-import { TimelinePlayer } from "./timeline-player";
+import { TimelinePlayer, type PlayerLayer } from "./timeline-player";
 import type { AssetRef, ClipRef, SceneRef, SequenceRef, ShotRef } from "./types";
 
 /** Pixels per second at zoom 1. Zoom multiplies it. */
@@ -75,8 +75,25 @@ export function TimelineEditor({
   );
 
   const current = clipAtTime(layout, playheadSeconds);
-  const currentShot = current ? shots[current.entry.clip.shotId] : undefined;
-  const currentAsset = current ? assetFor(currentShot, current.entry.clip) : undefined;
+
+  /** Turns a laid-out clip into the shot + asset the viewport should show. */
+  const layerFor = useCallback(
+    (entry: LaidOutClip<ClipRef> | undefined, offsetSeconds: number): PlayerLayer => {
+      const shot = entry ? shots[entry.clip.shotId] : undefined;
+      return {
+        shot,
+        asset: entry ? assetFor(shot, entry.clip) : undefined,
+        offsetSeconds,
+        inPointSeconds: entry?.clip.inPointSeconds ?? 0,
+      };
+    },
+    [shots]
+  );
+
+  const playerLayer = layerFor(current?.entry, current?.offsetSeconds ?? 0);
+  const incomingLayer = current?.incoming
+    ? layerFor(current.incoming.entry, current.incoming.offsetSeconds)
+    : undefined;
 
   const selected = layout.clips.find((e) => e.clip.id === selectedClipId);
 
@@ -135,10 +152,9 @@ export function TimelineEditor({
         <div className="space-y-3">
           <TimelinePlayer
             projectId={projectId}
-            shot={currentShot}
-            asset={currentAsset}
-            offsetSeconds={current?.offsetSeconds ?? 0}
-            inPointSeconds={current?.entry.clip.inPointSeconds ?? 0}
+            layer={playerLayer}
+            incoming={incomingLayer}
+            mixProgress={current?.incoming?.progress ?? 0}
             playing={playing}
             playheadSeconds={playheadSeconds}
             totalSeconds={layout.totalSeconds}
@@ -161,6 +177,15 @@ export function TimelineEditor({
             <span className="font-mono text-sm text-foreground">{formatTimecode(playheadSeconds)}</span>
             <span className="text-xs text-muted">
               of {formatDuration(layout.totalSeconds)} · {layout.clips.length} clips
+              {layout.overlapSeconds > 0 && (
+                <span
+                  className="text-accent"
+                  title={`Straight cuts throughout would run ${formatDuration(layout.straightCutSeconds)}.`}
+                >
+                  {" "}
+                  · {formatDuration(layout.overlapSeconds)} shorter than a straight cut
+                </span>
+              )}
             </span>
             <div className="ml-auto flex items-center gap-1">
               <span className="text-xs text-muted">Zoom</span>
@@ -265,6 +290,24 @@ export function TimelineEditor({
                   if (e.target === e.currentTarget) { setPlaying(false); seekToPixel(e.clientX); }
                 }}
               >
+                {/* Where a dissolve makes two clips play at once. Drawn over
+                    both, because the overlap is the thing being shown — the
+                    clips underneath are already positioned to overlap. */}
+                {layout.clips
+                  .filter((entry) => entry.overlapSeconds > 0)
+                  .map((entry) => (
+                    <div
+                      key={`mix-${entry.clip.id}`}
+                      className="pointer-events-none absolute top-1 z-20 rounded-sm border border-accent/70 bg-accent/25"
+                      style={{
+                        left: entry.startSeconds * pxPerSecond,
+                        width: entry.overlapSeconds * pxPerSecond,
+                        height: 104,
+                      }}
+                      title={`${formatDuration(entry.overlapSeconds)} dissolve — these seconds play once, not twice`}
+                    />
+                  ))}
+
                 {layout.clips.map((entry, index) => (
                   <ClipBlock
                     key={entry.clip.id}

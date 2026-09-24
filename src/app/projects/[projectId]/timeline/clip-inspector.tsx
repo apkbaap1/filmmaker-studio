@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Badge, Button, Card, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
-import { formatDuration, formatTimecode, type LaidOutClip } from "@/lib/timeline";
+import {
+  describeTransitionEffect,
+  formatDuration,
+  formatTimecode,
+  TRANSITION_TIMING,
+  type LaidOutClip,
+} from "@/lib/timeline";
 import {
   removeClipAction,
   selectClipAssetAction,
@@ -230,9 +236,9 @@ export function ClipInspector({
               ))}
             </Select>
           </div>
-          {clip.transition && clip.transition !== "CUT" && (
+          {clip.transition && TRANSITION_TIMING[clip.transition] !== "instant" && (
             <div className="w-28">
-              <Field label="Length (s)">
+              <Field label={TRANSITION_TIMING[clip.transition] === "audio-only" ? "Offset (s)" : "Length (s)"}>
                 <Input
                   type="number"
                   min="0"
@@ -254,10 +260,23 @@ export function ClipInspector({
             </div>
           )}
         </div>
-        <p className="mt-1 text-xs text-muted">
-          &ldquo;Not specified&rdquo; renders as a plain boundary. Nothing is inferred from the
-          shots on either side.
-        </p>
+        {entry.transition ? (
+          <p
+            className={[
+              "mt-2 rounded border px-2 py-1.5 text-xs",
+              entry.transition.note === null
+                ? "border-border bg-surface-2 text-foreground"
+                : "border-accent/50 bg-accent/10 text-foreground",
+            ].join(" ")}
+          >
+            {describeTransitionEffect(entry.transition)}
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-muted">
+            &ldquo;Not specified&rdquo; renders as a plain boundary. Nothing is inferred from the
+            shots on either side.
+          </p>
+        )}
         {shot.transitionNote && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-muted">Shot Builder note: &ldquo;{shot.transitionNote}&rdquo;</span>

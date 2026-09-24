@@ -419,6 +419,11 @@ model TimelineClip {
   /**
    * The edit at this clip's head. Null is "not specified" and renders as a plain
    * boundary; it is not the same as an explicit CUT.
+   * What each type does to the sequence's runtime — which of them overlap, which
+   * only occupy picture, which are audio and therefore not yet modelled — lives
+   * in src/lib/timeline.ts. This enum is the vocabulary, not the rules.
+   * `transitionDurationSeconds` null means "marked, length not stated yet",
+   * which is deliberately distinct from zero and is never defaulted.
    */
   transition                TransitionType?
   transitionDurationSeconds Float?

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   clipAtTime,
+  describeTransitionEffect,
   formatDuration,
   formatTimecode,
   groupByScene,
@@ -11,9 +12,12 @@ import {
   resolveClipAsset,
   resolveSourceDuration,
   resolveStoryboardFrame,
+  resolveTransition,
   splitPlacement,
+  TRANSITION_TIMING,
   usedDuration,
   type ClipPlacement,
+  type TransitionKind,
 } from "./timeline.ts";
 import { clipTransitionSchema, clipTrimSchema } from "./validation.ts";
 
@@ -402,16 +406,15 @@ describe("edit points", () => {
     );
   });
 
-  it("carries a transition duration without letting it move the ruler", () => {
-    // Transition length is edit metadata in this phase. Timing stays cut-based,
-    // so a 1s dissolve does not shorten the sequence by a second.
-    const clips = [
-      clip({ id: "c1", order: 0, shotDurationSeconds: 4 }),
-      clip({ id: "c2", order: 1, shotDurationSeconds: 4 }),
-    ];
-    assert.equal(layOutClips(clips, facts).totalSeconds, 8);
+  it("stores a transition length the timing layer can act on", () => {
     assert.ok(clipTransitionSchema.safeParse({ transition: "DISSOLVE", durationSeconds: 1 }).success);
-    assert.equal(layOutClips(clips, facts).totalSeconds, 8);
+  });
+
+  it("still accepts a transition marked before its length is decided", () => {
+    // Marking a dissolve and not yet knowing how long it runs is a normal state
+    // in an edit. It is stored, and the timing layer reports it as having no
+    // length rather than inventing one.
+    assert.ok(clipTransitionSchema.safeParse({ transition: "DISSOLVE", durationSeconds: null }).success);
   });
 });
 
@@ -466,5 +469,428 @@ describe("removing a placement", () => {
     );
     assert.equal(reinserted.clips.length, 3);
     assert.equal(reinserted.totalSeconds, 9);
+  });
+});
+
+/**
+ * Phase 12.2 — transitions that affect duration.
+ *
+ * The rule under test: a sequence runs for the sum of its used durations minus
+ * the material its transitions overlap, and only a dissolve overlaps anything.
+ * The other five edit points are here too, because the interesting claim is as
+ * much about what does *not* move the ruler as about what does.
+ */
+
+function withTransition(
+  id: string,
+  order: number,
+  seconds: number,
+  transition?: TransitionKind,
+  length?: number | null
+): TestClip {
+  return clip({
+    id,
+    order,
+    shotDurationSeconds: seconds,
+    transition: transition ?? null,
+    transitionDurationSeconds: length === undefined ? null : length,
+  });
+}
+
+describe("what each edit point does to the ruler", () => {
+  it("shortens the sequence by a dissolve's length", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 4), withTransition("c2", 1, 4, "DISSOLVE", 1)],
+      facts
+    );
+
+    assert.equal(layout.straightCutSeconds, 8, "the clips still use 8 seconds between them");
+    assert.equal(layout.totalSeconds, 7, "one of those seconds is played by both clips at once");
+    assert.equal(layout.overlapSeconds, 1);
+  });
+
+  it("starts the incoming clip early rather than truncating either one", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 4), withTransition("c2", 1, 4, "DISSOLVE", 1)],
+      facts
+    );
+    const [first, second] = layout.clips;
+
+    // Both clips still play their full used length. The dissolve moves where the
+    // second one sits, it does not take material away from either.
+    assert.equal(first.usedSeconds, 4);
+    assert.equal(second.usedSeconds, 4);
+    assert.deepEqual([first.startSeconds, first.endSeconds], [0, 4]);
+    assert.deepEqual([second.startSeconds, second.endSeconds], [3, 7]);
+  });
+
+  it("leaves the ruler alone for a cut and a match cut", () => {
+    for (const kind of ["CUT", "MATCH_CUT"] as const) {
+      const layout = layOutClips(
+        [withTransition("c1", 0, 4), withTransition("c2", 1, 4, kind, 2)],
+        facts
+      );
+      assert.equal(layout.totalSeconds, 8, `${kind} must take no time`);
+      assert.equal(layout.overlapSeconds, 0);
+      // The stored length is kept on the record and reported as inert rather
+      // than deleted behind the filmmaker's back.
+      assert.equal(layout.clips[1].transition?.statedSeconds, 2);
+      assert.equal(layout.clips[1].transition?.effectiveSeconds, 0);
+      assert.equal(layout.clips[1].transition?.note, "instant");
+    }
+  });
+
+  it("leaves the ruler alone for a fade, which costs picture and not time", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 4), withTransition("c2", 1, 4, "FADE", 1)],
+      facts
+    );
+
+    assert.equal(layout.totalSeconds, 8, "a fade runs through black over its own clip");
+    assert.equal(layout.overlapSeconds, 0);
+    // It still takes time — just not time off the sequence.
+    assert.equal(layout.clips[1].transition?.effectiveSeconds, 1);
+    assert.equal(layout.clips[1].transition?.overlapSeconds, 0);
+  });
+
+  it("leaves the picture alone for a J-cut and an L-cut, and says why", () => {
+    for (const kind of ["J_CUT", "L_CUT"] as const) {
+      const layout = layOutClips(
+        [withTransition("c1", 0, 4), withTransition("c2", 1, 4, kind, 1.5)],
+        facts
+      );
+
+      assert.equal(layout.totalSeconds, 8, `${kind} cuts the picture straight`);
+      assert.equal(layout.clips[1].transition?.note, "audio-only");
+      // The one thing it must never quietly become is a dissolve.
+      assert.equal(layout.clips[1].transition?.overlapSeconds, 0);
+      assert.match(
+        describeTransitionEffect(layout.clips[1].transition!),
+        /Audio tracks are not implemented yet/
+      );
+    }
+  });
+
+  it("covers every transition the schema accepts", () => {
+    // A new edit point added to the enum without a timing decision would leave
+    // this table incomplete, and the ruler would silently treat it as a cut.
+    const kinds: TransitionKind[] = ["CUT", "DISSOLVE", "FADE", "MATCH_CUT", "J_CUT", "L_CUT"];
+    for (const kind of kinds) {
+      assert.ok(
+        clipTransitionSchema.safeParse({ transition: kind, durationSeconds: null }).success,
+        `${kind} must be storable`
+      );
+      assert.ok(TRANSITION_TIMING[kind], `${kind} must have a stated timing behaviour`);
+    }
+    assert.equal(Object.keys(TRANSITION_TIMING).length, kinds.length);
+  });
+});
+
+describe("a transition with no length stated", () => {
+  it("does not invent one", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 4), withTransition("c2", 1, 4, "DISSOLVE", null)],
+      facts
+    );
+
+    assert.equal(layout.totalSeconds, 8, "an unstated length is not a default length");
+    assert.equal(layout.clips[1].transition?.note, "no-length-stated");
+    assert.match(describeTransitionEffect(layout.clips[1].transition!), /State a length/);
+  });
+
+  it("is a different thing from a zero-length one", () => {
+    const unstated = resolveTransition("DISSOLVE", null, {
+      precedingRemainingSeconds: 4,
+      incomingUsedSeconds: 4,
+    });
+    const zero = resolveTransition("DISSOLVE", 0, {
+      precedingRemainingSeconds: 4,
+      incomingUsedSeconds: 4,
+    });
+
+    assert.equal(unstated.statedSeconds, null);
+    assert.equal(zero.statedSeconds, 0);
+    assert.equal(unstated.note, "no-length-stated");
+    assert.equal(zero.note, null, "zero is an answer, so nothing limited it");
+    // Both happen to move the ruler by nothing, which is exactly why the two
+    // have to be distinguishable by something other than their effect.
+    assert.equal(unstated.overlapSeconds, 0);
+    assert.equal(zero.overlapSeconds, 0);
+  });
+});
+
+describe("a dissolve limited by the material either side of it", () => {
+  it("cannot be longer than the clip it dissolves from", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 2), withTransition("c2", 1, 10, "DISSOLVE", 4)],
+      facts
+    );
+
+    assert.equal(layout.clips[1].overlapSeconds, 2, "the outgoing clip is only 2s long");
+    assert.equal(layout.totalSeconds, 10);
+    assert.equal(layout.clips[1].transition?.note, "limited-by-outgoing");
+    assert.equal(layout.clips[1].startSeconds, 0, "it cannot start before the clip it mixes with");
+  });
+
+  it("cannot be longer than the clip it dissolves to", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 10), withTransition("c2", 1, 2, "DISSOLVE", 4)],
+      facts
+    );
+
+    assert.equal(layout.clips[1].overlapSeconds, 2);
+    assert.equal(layout.totalSeconds, 10);
+    assert.equal(layout.clips[1].transition?.note, "limited-by-incoming");
+  });
+
+  it("says so in words, with the length it actually plays", () => {
+    const layout = layOutClips(
+      [withTransition("c1", 0, 10), withTransition("c2", 1, 2, "DISSOLVE", 4)],
+      facts
+    );
+    const sentence = describeTransitionEffect(layout.clips[1].transition!);
+
+    assert.match(sentence, /2s/, "the length it actually plays");
+    assert.match(sentence, /4s/, "the length that was asked for");
+  });
+
+  it("has nothing to dissolve from at the head of the sequence", () => {
+    const layout = layOutClips([withTransition("c1", 0, 4, "DISSOLVE", 2)], facts);
+
+    assert.equal(layout.totalSeconds, 4);
+    assert.equal(layout.clips[0].startSeconds, 0, "the edit cannot start before zero");
+    assert.equal(layout.clips[0].transition?.note, "no-preceding-clip");
+  });
+
+  it("does not let two transitions claim the same seconds of one clip", () => {
+    // B is 4s with a 3s dissolve at its head. Only 1s of it is left for the
+    // dissolve at its tail, however long that one asks to be.
+    const layout = layOutClips(
+      [
+        withTransition("c1", 0, 10),
+        withTransition("c2", 1, 4, "DISSOLVE", 3),
+        withTransition("c3", 2, 10, "DISSOLVE", 3),
+      ],
+      facts
+    );
+
+    assert.equal(layout.clips[1].overlapSeconds, 3);
+    assert.equal(layout.clips[2].overlapSeconds, 1, "B has only 1s left to dissolve from");
+    assert.equal(layout.clips[2].transition?.note, "limited-by-outgoing");
+    assert.equal(layout.totalSeconds, 24 - 4);
+  });
+
+  it("counts a fade at the head against the material left for the tail", () => {
+    // A fade does not overlap anything, but it still occupies the clip's head,
+    // so a dissolve at the tail cannot reach back through it.
+    const layout = layOutClips(
+      [
+        withTransition("c1", 0, 10),
+        withTransition("c2", 1, 4, "FADE", 3),
+        withTransition("c3", 2, 10, "DISSOLVE", 3),
+      ],
+      facts
+    );
+
+    assert.equal(layout.clips[1].overlapSeconds, 0, "the fade itself shortens nothing");
+    assert.equal(layout.clips[2].overlapSeconds, 1);
+  });
+
+  it("gives up entirely when the previous clip has nothing left", () => {
+    const layout = layOutClips(
+      [
+        withTransition("c1", 0, 10),
+        withTransition("c2", 1, 3, "DISSOLVE", 3),
+        withTransition("c3", 2, 10, "DISSOLVE", 2),
+      ],
+      facts
+    );
+
+    assert.equal(layout.clips[2].overlapSeconds, 0, "all of B is already under the first dissolve");
+    assert.equal(layout.clips[2].transition?.note, "limited-by-outgoing");
+    assert.equal(layout.totalSeconds, 23 - 3);
+  });
+});
+
+describe("a fade is clamped to its own clip", () => {
+  it("cannot run longer than the clip it fades up over", () => {
+    const layout = layOutClips([withTransition("c1", 0, 2, "FADE", 5)], facts);
+
+    assert.equal(layout.clips[0].transition?.effectiveSeconds, 2);
+    assert.equal(layout.clips[0].transition?.note, "limited-by-incoming");
+    assert.equal(layout.totalSeconds, 2, "clamping a fade still does not move the ruler");
+  });
+
+  it("works at the head of a sequence, where a dissolve would not", () => {
+    // A fade up from black needs nothing before it; a dissolve does.
+    const fade = layOutClips([withTransition("c1", 0, 4, "FADE", 1)], facts);
+    const dissolve = layOutClips([withTransition("c1", 0, 4, "DISSOLVE", 1)], facts);
+
+    assert.equal(fade.clips[0].transition?.note, null);
+    assert.equal(dissolve.clips[0].transition?.note, "no-preceding-clip");
+  });
+});
+
+describe("the playhead during a dissolve", () => {
+  const layout = layOutClips(
+    [withTransition("c1", 0, 4), withTransition("c2", 1, 4, "DISSOLVE", 2)],
+    facts
+  );
+  // c1: 0–4. c2: 2–6. The mix runs 2–4.
+
+  it("reports both clips, and how far through the mix it is", () => {
+    const at3 = clipAtTime(layout, 3);
+    assert.equal(at3?.entry.clip.id, "c1", "the outgoing clip is the base layer");
+    assert.equal(at3?.incoming?.entry.clip.id, "c2");
+    assert.equal(at3?.incoming?.progress, 0.5, "halfway through a 2s mix");
+    assert.equal(at3?.offsetSeconds, 3, "3s into the outgoing clip");
+    assert.equal(at3?.incoming?.offsetSeconds, 1, "1s into the incoming one");
+  });
+
+  it("runs the mix from 0 to 1 across the transition", () => {
+    assert.equal(clipAtTime(layout, 2)?.incoming?.progress, 0);
+    assert.equal(clipAtTime(layout, 3.9)?.incoming?.progress, 0.95);
+  });
+
+  it("reports one clip either side of the mix", () => {
+    assert.equal(clipAtTime(layout, 1)?.incoming, undefined);
+    assert.equal(clipAtTime(layout, 1)?.entry.clip.id, "c1");
+    assert.equal(clipAtTime(layout, 5)?.incoming, undefined);
+    assert.equal(clipAtTime(layout, 5)?.entry.clip.id, "c2");
+  });
+
+  it("ends when the shortened sequence ends, not when a straight cut would", () => {
+    assert.equal(layout.totalSeconds, 6);
+    assert.ok(clipAtTime(layout, 5.99));
+    assert.equal(clipAtTime(layout, 6), undefined);
+    assert.equal(clipAtTime(layout, 7), undefined, "the old 8s ruler is gone");
+  });
+
+  it("never has three clips under it at once", () => {
+    // Guaranteed by the rule that two transitions cannot claim the same
+    // material — so the player never has to composite more than two layers.
+    const chained = layOutClips(
+      [
+        withTransition("c1", 0, 4),
+        withTransition("c2", 1, 4, "DISSOLVE", 2),
+        withTransition("c3", 2, 4, "DISSOLVE", 2),
+        withTransition("c4", 3, 4, "DISSOLVE", 2),
+      ],
+      facts
+    );
+
+    for (let t = 0; t < chained.totalSeconds; t += 0.05) {
+      const active = chained.clips.filter(
+        (e) => e.usedSeconds > 0 && t >= e.startSeconds && t < e.endSeconds
+      );
+      assert.ok(active.length <= 2, `${active.length} clips at ${t.toFixed(2)}s`);
+    }
+  });
+});
+
+describe("transitions and the rest of the timing rules", () => {
+  it("overlaps the trimmed length, not the shot's stated length", () => {
+    // A 10s shot trimmed to 2s can only give a dissolve 2 seconds, however long
+    // the shot itself is. The shot is not consulted and is not changed.
+    const clips = [
+      clip({ id: "c1", order: 0, shotDurationSeconds: 10, inPointSeconds: 0, outPointSeconds: 2 }),
+      clip({
+        id: "c2",
+        order: 1,
+        shotDurationSeconds: 10,
+        transition: "DISSOLVE",
+        transitionDurationSeconds: 5,
+      }),
+    ];
+    const layout = layOutClips(clips, facts);
+
+    assert.equal(layout.clips[1].overlapSeconds, 2);
+    assert.equal(clips[0].shotDurationSeconds, 10, "the shot is untouched");
+  });
+
+  it("keeps the scene bands consistent with the shortened ruler", () => {
+    const layout = layOutClips(
+      [
+        clip({ id: "c1", order: 0, sceneId: "s1", shotDurationSeconds: 4 }),
+        clip({
+          id: "c2",
+          order: 1,
+          sceneId: "s2",
+          shotDurationSeconds: 4,
+          transition: "DISSOLVE",
+          transitionDurationSeconds: 1,
+        }),
+      ],
+      facts
+    );
+    const groups = groupByScene(layout, (c) => c.sceneId);
+
+    assert.equal(groups.length, 2);
+    assert.equal(groups[1].startSeconds, 3, "the second scene starts where its first clip does");
+    assert.equal(groups[groups.length - 1].endSeconds, layout.totalSeconds);
+  });
+
+  it("ignores a transition on a clip trimmed to nothing", () => {
+    const layout = layOutClips(
+      [
+        clip({ id: "c1", order: 0, shotDurationSeconds: 4 }),
+        clip({
+          id: "c2",
+          order: 1,
+          shotDurationSeconds: 4,
+          inPointSeconds: 2,
+          outPointSeconds: 2,
+          transition: "DISSOLVE",
+          transitionDurationSeconds: 2,
+        }),
+        clip({ id: "c3", order: 2, shotDurationSeconds: 4 }),
+      ],
+      facts
+    );
+
+    assert.equal(layout.clips[1].usedSeconds, 0);
+    assert.equal(layout.clips[1].overlapSeconds, 0, "nothing to mix into");
+    assert.equal(layout.totalSeconds, 8);
+  });
+
+  it("reports the straight-cut runtime alongside the real one", () => {
+    const layout = layOutClips(
+      [
+        withTransition("c1", 0, 4),
+        withTransition("c2", 1, 4, "DISSOLVE", 1),
+        withTransition("c3", 2, 4, "DISSOLVE", 0.5),
+      ],
+      facts
+    );
+
+    assert.equal(layout.straightCutSeconds, 12);
+    assert.equal(layout.overlapSeconds, 1.5);
+    assert.equal(layout.totalSeconds, 10.5);
+    assert.equal(
+      layout.totalSeconds,
+      layout.straightCutSeconds - layout.overlapSeconds,
+      "the three figures must always agree"
+    );
+  });
+
+  it("leaves an untouched sequence exactly as long as it was", () => {
+    // The regression guard for every edit that specifies no transition at all:
+    // this phase must not have moved anything that was already correct.
+    const layout = layOutClips(
+      [withTransition("c1", 0, 6), withTransition("c2", 1, 4), withTransition("c3", 2, 2)],
+      facts
+    );
+
+    assert.equal(layout.totalSeconds, 12);
+    assert.equal(layout.overlapSeconds, 0);
+    assert.equal(layout.straightCutSeconds, layout.totalSeconds);
+    assert.deepEqual(
+      layout.clips.map((e) => [e.startSeconds, e.endSeconds]),
+      [
+        [0, 6],
+        [6, 10],
+        [10, 12],
+      ]
+    );
   });
 });

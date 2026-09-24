@@ -1,10 +1,10 @@
 # Filmmaker Studio — project status
 
-**As of commit `dfb1d95`+ (Export Asset Bundling), branch `main`.**
+**As of commit `df82ef8`+ (Timeline transitions that affect duration), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **738 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **766 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 > Keep this file current. It exists because the original planning history was
@@ -75,6 +75,7 @@ Reconstructed from `git log --reverse`:
 | 11.5 | Google Veo 3.1 video provider — **live verification deferred** |
 | 11.7 | Generation spend accounting + spend UI |
 | 12.1 | Export asset bundling — a ZIP carrying the media, not pointers |
+| 12.2 | Timeline transitions that affect duration |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -126,6 +127,16 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   dependency), verified against Python's `zipfile` and the `unzip` binary. A
   missing or oversized asset is recorded in the manifest with a reason rather
   than silently dropped, and the bundle still completes.
+- **Timeline transitions that affect duration** (12.2) — a dissolve now overlaps
+  the clips either side of it and the sequence gets shorter by that much. The
+  six edit points do four different things and the code says which:
+  `CUT`/`MATCH_CUT` are instant, `DISSOLVE` overlaps, `FADE` runs through black
+  over its own material without shortening anything, and `J_CUT`/`L_CUT` move
+  sound rather than picture and are reported as unmodelled until audio tracks
+  exist. A transition is clamped to the material actually available on either
+  side, and every clamp is surfaced in the inspector in words rather than
+  silently applied. The player composites the two clips of a dissolve instead of
+  cutting on a boundary the ruler has already shortened.
 
 ---
 
@@ -143,10 +154,10 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
 
 ## 5. NOT IMPLEMENTED
 
-- **Timeline transitions that affect duration** — type and length are stored as
-  edit metadata; a dissolve does not actually shorten the ruler.
 - **Audio** — shot-level dialogue/SFX/music are text fields. No audio tracks,
-  waveforms, or J/L-cut offsets.
+  waveforms, or J/L-cut offsets. This is what J- and L-cuts are waiting on:
+  both are straight cuts in the picture, so there is nothing for the timing
+  layer to do with them until there is sound to offset.
 - **Image-to-video from a generated still in the UI** — the adapter supports it;
   the pipeline supports it; the end-to-end UX is thin.
 - **Spend ceilings** (as opposed to attempt ceilings).
@@ -347,7 +358,7 @@ Ordered by risk retired per unit of effort.
 
 **B. Make the output deliverable**
 4. ~~Export asset bundling~~ — **done** (12.1).
-5. Timeline transitions that affect duration.
+5. ~~Timeline transitions that affect duration~~ — **done** (12.2).
 6. Audio tracks.
 7. Image-to-video from a generated still, end to end in the UI.
 
@@ -366,13 +377,17 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Timeline transitions that affect duration.**
+**Audio tracks.**
 
-Export asset bundling is done. The next provider-independent feature in the
-agreed order is transitions: type and length are stored as edit metadata today,
-but a dissolve does not shorten the ruler, so the timeline's total runtime is
-wrong whenever a transition is set. It is pure logic in `src/lib/timeline.ts`
-with an existing test suite to extend, and it needs no credential.
+Transitions are done, and finishing them made the case for audio concretely
+rather than abstractly: J- and L-cuts are the only two edit points the timing
+layer cannot model, and both are blocked on the same missing thing. Sound is
+also the largest remaining gap between what this produces and something a
+filmmaker would show anyone — a silent previz reel is half a reel.
+
+The data model is ready for it: `Sequence` and `TimelineClip` are real entities,
+so an `AudioTrack` related to `Sequence` and a clip-level offset are additive
+rather than a rewrite.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

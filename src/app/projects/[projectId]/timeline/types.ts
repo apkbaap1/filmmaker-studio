@@ -6,7 +6,13 @@
  * *references* a shot, it does not contain one. Two clips of the same shot
  * therefore read the same record, and there is nothing to keep in sync.
  */
-export type TransitionValue = "CUT" | "DISSOLVE" | "FADE" | "MATCH_CUT" | "J_CUT" | "L_CUT";
+import type { TransitionKind } from "@/lib/timeline";
+
+/**
+ * Aliased rather than re-declared: the set of edit points and what each one does
+ * to the ruler are the same fact, and lib/timeline owns it.
+ */
+export type TransitionValue = TransitionKind;
 
 export interface AssetRef {
   id: string;

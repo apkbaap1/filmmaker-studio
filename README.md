@@ -228,7 +228,8 @@ locations, equipment, and budget tracking.
   4. ✅ Visual composition canvas + overlays (rule of thirds, eyeline, etc.)
   5. ✅ AI image generation driven by the compiler
   6. ✅ AI video previsualization + video provider adapters
-  7. ✅ Timeline/edit view (shot clips, transitions, running duration)
+  7. ✅ Timeline/edit view (shot clips, transitions that shorten the ruler,
+     running duration)
   8. ✅ Camera blocking diagram (draggable top-down 2D)
   9. ✅ Continuity tracking + warnings across shots
   10. ✅ Prompt Studio UI (inspector, versions, per-provider tabs) + export package
@@ -373,11 +374,16 @@ deployable:
 | **Video providers** | Google Veo 3.1 adapter, implemented and unit-tested; **never run against the live API** — see `docs/veo-api-contract.md` | A credential in a runtime that can reach Google, then one real generation |
 | **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
 | **Billing / quotas** | Hard ceilings, plus a per-attempt spend ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`; a UI for the totals |
-| **Export assets** | Exports reference asset ids and storage keys | Bundling media into a downloadable archive |
-| **Timeline transitions** | Type and length stored as edit metadata | Overlapping dissolves that actually shorten the ruler |
+| **Export assets** | JSON, CSV, PDF, and a ZIP bundle carrying the media itself | ZIP64, for a bundle or single asset over 4 GiB |
+| **Timeline transitions** | Dissolves overlap and shorten the ruler; fades run through black; cuts are instant | J- and L-cuts, which move sound rather than picture — they need audio tracks |
 | **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |
 
-The timeline's data model is shaped so the last two are additive: `Sequence` and
+J- and L-cuts are the one place those two rows meet. Both are straight cuts in
+the picture; what moves is the sound. There are no audio tracks yet, so the
+stated offset is stored and the timeline reports it as unmodelled rather than
+quietly treating it as a dissolve — which is the one thing it must never become.
+
+The timeline's data model is shaped so audio is additive: `Sequence` and
 `TimelineClip` are proper entities, so markers, beat markers and audio tracks
 attach as new related tables rather than a rewrite.
 

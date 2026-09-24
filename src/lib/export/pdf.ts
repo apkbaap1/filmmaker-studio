@@ -113,7 +113,13 @@ export async function exportPdf(pkg: ExportPackage): Promise<Uint8Array> {
   // 9. Timeline
   if (pkg.timeline) {
     section(ctx, "Timeline");
-    muted(ctx, `${pkg.timeline.sequenceName} · ${pkg.timeline.clips.length} clips · ${pkg.timeline.totalSeconds}s total`);
+    muted(
+      ctx,
+      `${pkg.timeline.sequenceName} · ${pkg.timeline.clips.length} clips · ${pkg.timeline.totalSeconds}s total` +
+        (pkg.timeline.overlapSeconds > 0
+          ? ` (${pkg.timeline.overlapSeconds}s of dissolves; ${pkg.timeline.straightCutSeconds}s on straight cuts)`
+          : "")
+    );
     gap(ctx, 4);
     for (const clip of pkg.timeline.clips) {
       const trim =
@@ -123,7 +129,12 @@ export async function exportPdf(pkg: ExportPackage): Promise<Uint8Array> {
       body(
         ctx,
         `Shot ${clip.shotNumber} · ${clip.startSeconds}s–${clip.endSeconds}s (${clip.usedSeconds}s used, ${trim})` +
-          (clip.transition ? ` · ${clip.transition.toLowerCase().replace(/_/g, " ")}` : "")
+          (clip.transition ? ` · ${clip.transition.toLowerCase().replace(/_/g, " ")}` : "") +
+          // The length it actually ran, not the length asked for: a dissolve
+          // limited by the material on either side plays shorter, and a report
+          // quoting the stated figure would describe an edit that is not there.
+          (clip.transitionEffectiveSeconds ? ` ${clip.transitionEffectiveSeconds}s` : "") +
+          (clip.overlapSeconds > 0 ? ` (overlaps −${clip.overlapSeconds}s)` : "")
       );
     }
   }
