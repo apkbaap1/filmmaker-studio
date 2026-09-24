@@ -5,7 +5,15 @@ import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
 import { formatSlugline } from "@/lib/scene-format";
 import { TimelineEditor } from "./timeline-editor";
 import { CreateSequenceForm } from "./sequence-controls";
-import type { AssetRef, ClipRef, SceneRef, SequenceRef, ShotRef, TransitionValue } from "./types";
+import type {
+  AssetRef,
+  AudioTrackRef,
+  ClipRef,
+  SceneRef,
+  SequenceRef,
+  ShotRef,
+  TransitionValue,
+} from "./types";
 
 /**
  * Edit view.
@@ -51,10 +59,17 @@ export default async function TimelinePage({
 
   const active = sequences.find((s) => s.id === requestedSequenceId) ?? sequences[0];
 
-  const clips = await prisma.timelineClip.findMany({
-    where: { sequenceId: active.id },
-    orderBy: { order: "asc" },
-  });
+  const [clips, audioTracks] = await Promise.all([
+    prisma.timelineClip.findMany({
+      where: { sequenceId: active.id },
+      orderBy: { order: "asc" },
+    }),
+    prisma.audioTrack.findMany({
+      where: { sequenceId: active.id },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+      include: { clips: { orderBy: { startSeconds: "asc" } } },
+    }),
+  ]);
 
   const [allShots, allAssets, generations] = await Promise.all([
     prisma.shotListItem.findMany({
@@ -63,7 +78,9 @@ export default async function TimelinePage({
       include: { scene: true },
     }),
     prisma.asset.findMany({
-      where: { projectId, shotId: { not: null } },
+      // Audio is included whether or not it hangs off a shot: a score belongs
+      // to the production, not to one setup.
+      where: { projectId, OR: [{ shotId: { not: null } }, { type: "AUDIO" }] },
       orderBy: { createdAt: "desc" },
     }),
     prisma.generation.groupBy({
@@ -73,9 +90,25 @@ export default async function TimelinePage({
     }),
   ]);
 
+  const toAssetRef = (asset: (typeof allAssets)[number]): AssetRef => ({
+    id: asset.id,
+    mimeType: asset.mimeType,
+    caption: asset.caption,
+    prompt: asset.prompt,
+    source: asset.source,
+    type: asset.type,
+    durationSeconds: asset.durationSeconds,
+    width: asset.width,
+    height: asset.height,
+    createdAt: asset.createdAt.toISOString(),
+  });
+
+  /** Every audio asset in the project, placeable on any track. */
+  const audioAssets = allAssets.filter((a) => a.type === "AUDIO").map(toAssetRef);
+
   const assetsByShot = new Map<string, AssetRef[]>();
   for (const asset of allAssets) {
-    if (!asset.shotId) continue;
+    if (!asset.shotId || asset.type === "AUDIO") continue;
     const list = assetsByShot.get(asset.shotId) ?? [];
     list.push({
       id: asset.id,
@@ -174,10 +207,33 @@ export default async function TimelinePage({
             outPointSeconds: c.outPointSeconds,
             transition: c.transition as TransitionValue | null,
             transitionDurationSeconds: c.transitionDurationSeconds,
+            audioMuted: c.audioMuted,
             selectedAssetId: c.selectedAssetId,
             notes: c.notes,
           })
         )}
+        audioTracks={audioTracks.map(
+          (t): AudioTrackRef => ({
+            id: t.id,
+            name: t.name,
+            role: t.role,
+            order: t.order,
+            muted: t.muted,
+            gainDb: t.gainDb,
+            clips: t.clips.map((c) => ({
+              id: c.id,
+              assetId: c.assetId,
+              startSeconds: c.startSeconds,
+              inPointSeconds: c.inPointSeconds,
+              outPointSeconds: c.outPointSeconds,
+              gainDb: c.gainDb,
+              fadeInSeconds: c.fadeInSeconds,
+              fadeOutSeconds: c.fadeOutSeconds,
+              notes: c.notes,
+            })),
+          })
+        )}
+        audioAssets={audioAssets}
         shots={shots}
         scenes={scenes}
         unplacedShotIds={allShots.filter((s) => !placedShotIds.has(s.id)).map((s) => s.id)}

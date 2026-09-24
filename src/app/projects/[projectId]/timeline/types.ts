@@ -20,7 +20,7 @@ export interface AssetRef {
   caption: string | null;
   prompt: string | null;
   source: "UPLOADED" | "GENERATED";
-  type: "IMAGE" | "VIDEO" | "DIAGRAM";
+  type: "IMAGE" | "VIDEO" | "DIAGRAM" | "AUDIO";
   durationSeconds: number | null;
   width: number | null;
   height: number | null;
@@ -64,8 +64,42 @@ export interface ClipRef {
   outPointSeconds: number | null;
   transition: TransitionValue | null;
   transitionDurationSeconds: number | null;
+  /** True when this edit plays the clip's own sound silent. */
+  audioMuted: boolean;
   selectedAssetId: string | null;
   notes: string | null;
+}
+
+export type AudioRoleValue = "DIALOGUE" | "MUSIC" | "SFX" | "AMBIENCE";
+
+/**
+ * A placement of an audio asset on a track.
+ *
+ * Carries `startSeconds` because sound is positioned against the picture rather
+ * than queued behind the previous sound. Like a picture clip it references its
+ * asset rather than containing it.
+ */
+export interface AudioClipRef {
+  id: string;
+  assetId: string;
+  startSeconds: number;
+  inPointSeconds: number;
+  outPointSeconds: number | null;
+  gainDb: number | null;
+  fadeInSeconds: number | null;
+  fadeOutSeconds: number | null;
+  notes: string | null;
+}
+
+export interface AudioTrackRef {
+  id: string;
+  name: string;
+  role: AudioRoleValue;
+  order: number;
+  muted: boolean;
+  /** Null is unity — no level stated, which is not the same as 0 dB chosen. */
+  gainDb: number | null;
+  clips: AudioClipRef[];
 }
 
 export interface SequenceRef {

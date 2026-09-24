@@ -35,6 +35,16 @@ export const EXTENSION_BY_MIME: Record<string, string> = {
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
+  // Audio. The list is what a browser will actually decode and play, because a
+  // track carrying a file no player here can open would be a placement with no
+  // sound under it. AIFF and raw formats are deliberately absent.
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "audio/wav": "wav",
+  "audio/ogg": "ogg",
+  "audio/webm": "weba",
+  "audio/flac": "flac",
   "application/pdf": "pdf",
 };
 
@@ -46,12 +56,16 @@ export function isSupportedMimeType(mimeType: string): boolean {
 export const MAX_BYTES = {
   image: 25 * 1024 * 1024,
   video: 500 * 1024 * 1024,
+  // Between the two: a feature-length uncompressed music bed is larger than an
+  // image and smaller than the video it plays under.
+  audio: 200 * 1024 * 1024,
   other: 25 * 1024 * 1024,
 } as const;
 
 export function maxBytesFor(mimeType: string): number {
   if (mimeType.startsWith("image/")) return MAX_BYTES.image;
   if (mimeType.startsWith("video/")) return MAX_BYTES.video;
+  if (mimeType.startsWith("audio/")) return MAX_BYTES.audio;
   return MAX_BYTES.other;
 }
 

@@ -44,6 +44,8 @@ export interface ClipPlacement {
   inPointSeconds: number;
   /** Null means "run to the end of the source" — not a copy of the source length. */
   outPointSeconds?: number | null;
+  /** Silences this clip's own sound — the audio inside the video it plays. */
+  audioMuted?: boolean;
   /**
    * The edit at this clip's head. Absent or null is "not specified" — a plain
    * boundary, which is not the same as an explicit CUT and is never inferred
@@ -116,11 +118,12 @@ export function usedDuration(placement: ClipPlacement, sourceSeconds: number): n
  *                    the runtime is unchanged — a fade costs picture, not time.
  *
  *   J_CUT, L_CUT     audio. Both are straight cuts in the picture; what moves
- *                    is the sound, leading the cut (J) or lagging it (L). There
- *                    are no audio tracks in this system yet, so the stated
- *                    length is recorded and nothing plays it. It is reported as
- *                    unmodelled rather than quietly treated as a dissolve,
- *                    which is the one thing it must never become.
+ *                    is the sound, leading the cut (J) or lagging it (L). This
+ *                    module deliberately does nothing with them beyond saying
+ *                    so: `resolveAudioBoundary` in lib/audio.ts works out where
+ *                    the sound goes, against the material either side. What a
+ *                    J- or L-cut must never become is a dissolve, and keeping
+ *                    the two layers apart is what stops it.
  */
 export type TransitionKind = "CUT" | "DISSOLVE" | "FADE" | "MATCH_CUT" | "J_CUT" | "L_CUT";
 
@@ -270,9 +273,12 @@ export function describeTransitionEffect(resolved: ResolvedTransition): string {
     case "instant":
       return `A ${name} takes no time. The stored length of ${stated} has no effect on the edit.`;
     case "audio-only":
-      return `A ${name} moves the sound, not the picture: the picture cuts straight and the edit's length is unchanged. Audio tracks are not implemented yet, so ${
-        stated ? `the ${stated} offset is recorded and nothing plays it` : "no offset has been stated"
-      }.`;
+      // Where the sound actually goes is resolved in lib/audio.ts against the
+      // material either side of the boundary. This layer is picture, and its
+      // honest answer is that a J- or L-cut does not touch it.
+      return `A ${name} moves the sound, not the picture: the picture cuts straight and the edit's length is unchanged. ${
+        stated ? `The ${stated} offset applies to the sound alone.` : "No offset has been stated."
+      }`;
     case "no-length-stated":
       return `Marked as a ${name} with no length, so it plays as a plain boundary. State a length to give it an effect.`;
     case "no-preceding-clip":
@@ -526,10 +532,18 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** Keeps float drift out of accumulated ruler positions. */
-function round(seconds: number): number {
+/**
+ * Keeps float drift out of accumulated ruler positions.
+ *
+ * Exported because the audio layer lays out against these same positions, and a
+ * sound placed on a slightly different grid from the picture it belongs to is a
+ * sync error nobody would think to look for.
+ */
+export function roundSeconds(seconds: number): number {
   return Math.round(seconds * 1000) / 1000;
 }
+
+const round = roundSeconds;
 
 function trimZeros(value: number): string {
   return String(Math.round(value * 100) / 100);

@@ -49,6 +49,19 @@ enum AssetType {
   IMAGE
   VIDEO
   DIAGRAM
+  AUDIO
+}
+
+/**
+ * What a track carries. Not a mixing bus and not an effect chain — a label that
+ * says what the material is for, so a dialogue pass and a music bed can be
+ * soloed, muted and read apart from each other.
+ */
+enum AudioRole {
+  DIALOGUE
+  MUSIC
+  SFX
+  AMBIENCE
 }
 
 enum AssetSource {
@@ -387,10 +400,90 @@ model Sequence {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  clips   TimelineClip[]
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clips       TimelineClip[]
+  audioTracks AudioTrack[]
 
   @@index([projectId])
+}
+
+/**
+ * A lane of sound under the edit.
+ * Tracks are where audio that is *not* tied to a shot lives: a score, a
+ * narration pass, room tone, a sound-effects layer. Sound that belongs to a shot
+ * is not here — it is inside the video asset the shot's clip plays, and moving
+ * it onto a track would make two records of one thing.
+ * `gainDb` is null for unity rather than 0, for the same reason every other
+ * optional value in this schema is null: no number has been stated. It is stored
+ * in decibels because that is what a mixer reads; the linear factor a player
+ * needs is derived in src/lib/audio.ts and never stored.
+ */
+model AudioTrack {
+  id         String    @id @default(cuid())
+  sequenceId String
+  name       String
+  role       AudioRole
+  order      Int       @default(0)
+
+  muted  Boolean @default(false)
+  gainDb Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sequence Sequence    @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  clips    AudioClip[]
+
+  @@index([sequenceId])
+}
+
+/**
+ * One placement of an audio asset on a track.
+ * Unlike a TimelineClip, this carries its own `startSeconds`: picture clips are
+ * laid end to end in order, but sound is placed against the picture rather than
+ * queued behind the previous sound, and a track with a deliberate two-second
+ * silence in it is a normal thing. The asset is referenced, never copied, so one
+ * recording used in three places is still one file.
+ */
+model AudioClip {
+  id      String @id @default(cuid())
+  trackId String
+  assetId String
+
+  /**
+   * Where on the sequence's ruler this placement starts.
+   */
+  startSeconds Float @default(0)
+
+  /**
+   * Trim, in seconds from the head of the source. `outPointSeconds` null means
+   * "run to the end of the source" rather than a stored copy of its length.
+   */
+  inPointSeconds  Float  @default(0)
+  outPointSeconds Float?
+
+  /**
+   * Null is unity — no level has been stated for this placement.
+   */
+  gainDb Float?
+
+  /**
+   * Level ramps at the head and tail, in seconds. Null means no ramp was asked
+   * for, which is not the same as a ramp of zero length.
+   */
+  fadeInSeconds  Float?
+  fadeOutSeconds Float?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  track AudioTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  asset Asset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([trackId])
+  @@index([assetId])
 }
 
 /**
@@ -427,6 +520,13 @@ model TimelineClip {
    */
   transition                TransitionType?
   transitionDurationSeconds Float?
+
+  /**
+   * Silences this clip's own sound — the audio embedded in the video asset
+   * standing in for the shot. Separate from a track's mute, because this is a
+   * decision about the shot's sync sound and that is a decision about a track.
+   */
+  audioMuted Boolean @default(false)
 
   /**
    * Which generated/uploaded asset represents this shot in this edit.
@@ -698,6 +798,10 @@ model Asset {
    * Timeline placements that use this asset to represent their shot.
    */
   selectedInClips TimelineClip[] @relation("ClipSelectedAsset")
+  /**
+   * Placements of this asset on an audio track.
+   */
+  audioClips      AudioClip[]
 
   @@index([projectId])
   @@index([sceneId])

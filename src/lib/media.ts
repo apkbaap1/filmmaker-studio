@@ -6,6 +6,7 @@ import {
   assertStorableMedia,
   assertValidKey,
   buildAssetKey,
+  EXTENSION_BY_MIME,
   MAX_BYTES,
   MediaTooLargeError,
   UnsupportedMediaError,
@@ -263,3 +264,12 @@ export { MediaTooLargeError, UnsupportedMediaError };
  * own ceiling drifting away from the one that actually rejects the write.
  */
 export { MAX_BYTES };
+
+/**
+ * The extension each accepted MIME type gets, re-exported for the export layer.
+ *
+ * Shared rather than copied: the extension a file is stored under and the
+ * extension it is given inside a bundle are the same fact, and two tables would
+ * drift the first time a format was added to one of them.
+ */
+export { EXTENSION_BY_MIME };

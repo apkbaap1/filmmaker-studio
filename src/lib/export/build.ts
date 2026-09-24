@@ -13,6 +13,7 @@ import {
 import { getImageProvider } from "@/lib/ai/image-providers";
 import { configuredVideoProviderId, getVideoProvider, localStubVideoProvider } from "@/lib/ai/video-providers";
 import { layOutClips, resolveClipAsset, type TransitionKind } from "@/lib/timeline";
+import { layOutAudioTrack, layOutSyncAudio, sequenceRuntime } from "@/lib/audio";
 import {
   analyseContinuity,
   type AnalysisInput,
@@ -57,7 +58,22 @@ export async function buildExportPackage(projectId: string): Promise<ExportPacka
     prisma.sequence.findFirst({
       where: { projectId },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      include: { clips: { orderBy: { order: "asc" } } },
+      include: {
+        clips: { orderBy: { order: "asc" } },
+        audioTracks: {
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+          include: {
+            clips: {
+              orderBy: { startSeconds: "asc" },
+              include: {
+                asset: {
+                  select: { id: true, caption: true, durationSeconds: true, mimeType: true },
+                },
+              },
+            },
+          },
+        },
+      },
     }),
   ]);
 
@@ -248,7 +264,27 @@ function buildTimeline(
       outPointSeconds: number | null;
       transition: TransitionKind | null;
       transitionDurationSeconds: number | null;
+      audioMuted: boolean;
       selectedAssetId: string | null;
+    }>;
+    audioTracks: Array<{
+      id: string;
+      name: string;
+      role: string;
+      muted: boolean;
+      gainDb: number | null;
+      clips: Array<{
+        id: string;
+        assetId: string;
+        startSeconds: number;
+        inPointSeconds: number;
+        outPointSeconds: number | null;
+        gainDb: number | null;
+        fadeInSeconds: number | null;
+        fadeOutSeconds: number | null;
+        notes: string | null;
+        asset: { id: string; caption: string | null; durationSeconds: number | null; mimeType: string };
+      }>;
     }>;
   } | null,
   scenes: Array<{ shots: Array<{ id: string; shotNumber: string; durationSeconds: number | null; assets: Array<{ id: string; mimeType: string; durationSeconds: number | null }> }> }>
@@ -267,11 +303,63 @@ function buildTimeline(
     };
   });
 
+  // Sound is laid out against the picture that has already been positioned, so
+  // a J-cut's reach is measured from where the dissolves actually left things.
+  const syncAudio = layOutSyncAudio(layout, (clip) => {
+    const shot = shotsById.get(clip.shotId);
+    const asset = shot ? resolveClipAsset(shot.assets, clip.selectedAssetId) : undefined;
+    const isVideo = Boolean(asset?.mimeType.startsWith("video/"));
+    return {
+      // A video asset is the only thing here that can carry sound. Whether it
+      // actually does is not knowable without decoding it, so this says the
+      // clip *has* a sound source, not that the file is not silent.
+      hasAudio: isVideo,
+      sourceSeconds: isVideo ? (asset?.durationSeconds ?? null) : null,
+    };
+  });
+
+  const audioTracks = sequence.audioTracks.map((track) => {
+    const laidOut = layOutAudioTrack(track.clips, (clip) => clip.asset.durationSeconds);
+    return {
+      id: track.id,
+      name: track.name,
+      role: track.role,
+      muted: track.muted,
+      gainDb: track.gainDb,
+      endSeconds: laidOut.endSeconds,
+      clips: laidOut.clips.map((entry) => ({
+        id: entry.clip.id,
+        assetId: entry.clip.assetId,
+        caption: entry.clip.asset.caption,
+        startSeconds: entry.startSeconds,
+        endSeconds: entry.endSeconds,
+        usedSeconds: entry.usedSeconds,
+        inPointSeconds: entry.sourceInSeconds,
+        outPointSeconds: entry.sourceOutSeconds,
+        gainDb: entry.clip.gainDb,
+        fadeInSeconds: entry.fadeInSeconds,
+        fadeOutSeconds: entry.fadeOutSeconds,
+        // Reported rather than resolved: an unmeasured file has no length, and
+        // the export says so instead of publishing a plausible number.
+        lengthMeasured: entry.measured,
+        notes: entry.clip.notes,
+      })),
+    };
+  });
+
+  const runtime = sequenceRuntime(
+    layout.totalSeconds,
+    syncAudio.endSeconds,
+    audioTracks.map((t) => t.endSeconds)
+  );
+
   return {
     sequenceName: sequence.name,
     totalSeconds: layout.totalSeconds,
     straightCutSeconds: layout.straightCutSeconds,
     overlapSeconds: layout.overlapSeconds,
+    runtime,
+    audioTracks,
     clips: layout.clips.map((entry) => ({
       shotId: entry.clip.shotId,
       shotNumber: shotsById.get(entry.clip.shotId)?.shotNumber ?? "—",
@@ -288,6 +376,20 @@ function buildTimeline(
       // not exist whenever there was not enough material for it.
       transitionEffectiveSeconds: entry.transition?.effectiveSeconds ?? null,
       overlapSeconds: entry.overlapSeconds,
+      audioMuted: entry.clip.audioMuted,
+      // Where this clip's own sound plays, which a J- or L-cut moves off the
+      // picture it belongs to.
+      audio: (() => {
+        const segment = syncAudio.segments.find((s) => s.clip.id === entry.clip.id);
+        if (!segment) return null;
+        return {
+          startSeconds: segment.startSeconds,
+          endSeconds: segment.endSeconds,
+          offsetFromPicture: segment.offsetFromPicture,
+          silent: segment.silent,
+          silentReason: segment.silentReason,
+        };
+      })(),
       selectedAssetId: entry.clip.selectedAssetId,
     })),
   };

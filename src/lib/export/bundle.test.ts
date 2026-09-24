@@ -37,12 +37,14 @@ let imageAssetId: string;
 let videoAssetId: string;
 let sharedAssetId: string;
 let generatedAssetId: string;
+let musicAssetId: string;
+let sequenceId: string;
 
 /** Distinct content per asset, so a mix-up cannot pass unnoticed. */
 const CONTENT: Record<string, Buffer> = {};
 
 async function makeAsset(fields: {
-  type: "IMAGE" | "VIDEO" | "DIAGRAM";
+  type: "IMAGE" | "VIDEO" | "DIAGRAM" | "AUDIO";
   source: "UPLOADED" | "GENERATED";
   mimeType: string;
   shotId?: string;
@@ -130,6 +132,9 @@ before(async () => {
     shotId: shotOneId,
     bytes: Buffer.from("MP4-CONTENT-FOR-SHOT-12"),
   });
+  // Measured at 12s while the clip below uses only 8 of them, so there are 4
+  // seconds of tail handle for an L-cut to carry into.
+  await prisma.asset.update({ where: { id: videoAssetId }, data: { durationSeconds: 12 } });
   generatedAssetId = await makeAsset({
     type: "IMAGE",
     source: "GENERATED",
@@ -145,6 +150,56 @@ before(async () => {
     sceneId: sceneOneId,
     caption: "Floor plan",
     bytes: Buffer.from("DIAGRAM-CONTENT"),
+  });
+
+  // Sound belongs to the production rather than to any one shot, so it hangs
+  // off neither a scene nor a shot.
+  musicAssetId = await makeAsset({
+    type: "AUDIO",
+    source: "UPLOADED",
+    mimeType: "audio/mpeg",
+    caption: "Main theme",
+    bytes: Buffer.from("MP3-CONTENT-MAIN-THEME"),
+  });
+  await prisma.asset.update({
+    where: { id: musicAssetId },
+    data: { durationSeconds: 30 },
+  });
+
+  const sequence = await prisma.sequence.create({
+    data: { projectId, name: "Main edit", order: 0 },
+  });
+  sequenceId = sequence.id;
+  await prisma.timelineClip.create({
+    data: {
+      sequenceId,
+      shotId: shotOneId,
+      order: 0,
+      selectedAssetId: videoAssetId,
+      outPointSeconds: 8,
+    },
+  });
+  await prisma.timelineClip.create({
+    data: {
+      sequenceId,
+      shotId: shotTwoId,
+      order: 1,
+      transition: "L_CUT",
+      transitionDurationSeconds: 1,
+      audioMuted: true,
+    },
+  });
+
+  const track = await prisma.audioTrack.create({
+    data: { sequenceId, name: "Score", role: "MUSIC", order: 0, gainDb: -6 },
+  });
+  await prisma.audioClip.create({
+    data: {
+      trackId: track.id,
+      assetId: musicAssetId,
+      startSeconds: 2,
+      fadeInSeconds: 1,
+    },
   });
 });
 
@@ -330,12 +385,18 @@ describe("the manifest", () => {
     const bundle = await build(projectId);
     const manifest = bundle.manifest.bundle;
 
-    assert.equal(manifest.assetsTotal, 4);
-    assert.equal(manifest.assetsIncluded, 4);
+    assert.equal(manifest.assetsTotal, 5);
+    assert.equal(manifest.assetsIncluded, 5);
     assert.equal(manifest.assetsMissing, 0);
     assert.equal(manifest.complete, true);
 
-    const expected = [imageAssetId, videoAssetId, generatedAssetId, sharedAssetId].reduce(
+    const expected = [
+      imageAssetId,
+      videoAssetId,
+      generatedAssetId,
+      sharedAssetId,
+      musicAssetId,
+    ].reduce(
       (sum, id) => sum + CONTENT[id].length,
       0
     );
@@ -370,7 +431,7 @@ describe("assets that cannot be bundled", () => {
     const manifest = bundle.manifest.bundle;
 
     assert.equal(manifest.complete, false);
-    assert.equal(manifest.assetsIncluded, 3);
+    assert.equal(manifest.assetsIncluded, 4);
     assert.equal(manifest.assetsMissing, 1);
 
     const record = manifest.assets.find((a) => a.assetId === videoAssetId);
@@ -400,7 +461,7 @@ describe("assets that cannot be bundled", () => {
     const bundle = await build(projectId, { readBytes: reader({ missing: [videoAssetId] }) });
     const readme = bundle.read("README.txt").toString("utf8");
 
-    assert.match(readme, /3 of 4 assets are included/);
+    assert.match(readme, /4 of 5 assets are included/);
     assert.match(readme, /could not be added/);
   });
 
@@ -411,7 +472,7 @@ describe("assets that cannot be bundled", () => {
 
   it("still reports complete when nothing is missing", async () => {
     const bundle = await build(projectId);
-    assert.match(bundle.read("README.txt").toString("utf8"), /All 4 assets are included/);
+    assert.match(bundle.read("README.txt").toString("utf8"), /All 5 assets are included/);
   });
 });
 
@@ -485,5 +546,98 @@ describe("the export layer knows nothing about providers", () => {
 
     assert.ok(!source.includes("@/lib/storage"), "the bundle must go through lib/media");
     assert.match(source, /from "@\/lib\/media"/);
+  });
+});
+
+describe("sound in the bundle", () => {
+  it("carries the audio file itself, not a reference to it", async () => {
+    const bundle = await build(projectId);
+    const at = bundlePathFor(musicAssetId, "audio/mpeg");
+
+    assert.ok(bundle.names.includes(at), `expected ${at} in ${bundle.names.join(", ")}`);
+    assert.equal(bundle.read(at).toString(), "MP3-CONTENT-MAIN-THEME");
+  });
+
+  it("gives an audio file the extension its format actually uses", () => {
+    assert.equal(extensionFor("audio/mpeg"), "mp3");
+    assert.equal(extensionFor("audio/wav"), "wav");
+    assert.equal(extensionFor("audio/ogg"), "ogg");
+    // Still no guessing for a format the application does not accept.
+    assert.equal(extensionFor("audio/x-aiff"), "bin");
+  });
+
+  it("records the track and where its placement sits", async () => {
+    const bundle = await build(projectId);
+    const tracks = bundle.manifest.timeline?.audioTracks ?? [];
+
+    assert.equal(tracks.length, 1);
+    assert.equal(tracks[0].name, "Score");
+    assert.equal(tracks[0].role, "MUSIC");
+    assert.equal(tracks[0].gainDb, -6);
+    assert.equal(tracks[0].clips.length, 1);
+    assert.equal(tracks[0].clips[0].startSeconds, 2);
+    assert.equal(tracks[0].clips[0].endSeconds, 32, "a measured 30s file placed at 2s");
+    assert.equal(tracks[0].clips[0].lengthMeasured, true);
+    assert.equal(tracks[0].clips[0].fadeInSeconds, 1);
+    assert.equal(tracks[0].clips[0].fadeOutSeconds, null, "no ramp was asked for");
+  });
+
+  it("reports a runtime that counts the sound, not just the cut", async () => {
+    const bundle = await build(projectId);
+    const timeline = bundle.manifest.timeline;
+    assert.ok(timeline);
+
+    // Two shots: one 8s, one with no stated duration (the 4s placeholder).
+    assert.equal(timeline.runtime.pictureSeconds, timeline.totalSeconds);
+    // The score runs to 32s, past the last frame.
+    assert.equal(timeline.runtime.audioSeconds, 32);
+    assert.equal(timeline.runtime.totalSeconds, 32);
+    assert.ok(
+      timeline.runtime.totalSeconds > timeline.runtime.pictureSeconds,
+      "the mix outlasts the cut, and the export says both"
+    );
+  });
+
+  it("names the track in ASSETS.txt so the score is findable by hand", async () => {
+    const bundle = await build(projectId);
+    const index = bundle.read("ASSETS.txt").toString();
+
+    assert.match(index, /AUDIO TRACK — Score \(music\)/);
+    assert.match(index, new RegExp(bundlePathFor(musicAssetId, "audio/mpeg")));
+    assert.match(index, /2s–32s/);
+    // Listed under its track rather than dumped in the orphan list, which is
+    // where an asset attached to no shot would otherwise land.
+    const orphanSection = index.slice(index.indexOf("PROJECT-LEVEL ASSETS"));
+    assert.ok(
+      orphanSection === "" || !orphanSection.includes(bundlePathFor(musicAssetId, "audio/mpeg")),
+      "the score is a placement, not an orphan"
+    );
+  });
+
+  it("records a clip played silent, and where an L-cut put the sound", async () => {
+    const bundle = await build(projectId);
+    const clips = bundle.manifest.timeline?.clips ?? [];
+
+    const muted = clips.find((c) => c.audioMuted);
+    assert.ok(muted, "the second clip is muted in this edit");
+    assert.equal(muted.audio?.silent, true);
+    assert.equal(muted.audio?.silentReason, "muted");
+
+    // The L-cut sits at the second clip's head, so it is the *first* clip's
+    // sound that runs past its picture.
+    const first = clips.find((c) => !c.audioMuted);
+    assert.ok(first);
+    assert.ok(
+      first.audio && first.audio.endSeconds > first.endSeconds,
+      "the first clip's sound carries past its last frame"
+    );
+  });
+
+  it("still puts no credentials in a manifest that now carries a mix", async () => {
+    const bundle = await build(projectId);
+    const text = JSON.stringify(bundle.manifest);
+    for (const secret of ["sk-", "AKIA", "api_key", "apiKey", "Authorization", "secret"]) {
+      assert.ok(!text.includes(secret), `manifest must not contain ${secret}`);
+    }
   });
 });

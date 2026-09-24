@@ -1,10 +1,10 @@
 # Filmmaker Studio — project status
 
-**As of commit `df82ef8`+ (Timeline transitions that affect duration), branch `main`.**
+**As of commit `67d038f`+ (Audio tracks), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **766 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **824 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 > Keep this file current. It exists because the original planning history was
@@ -76,6 +76,7 @@ Reconstructed from `git log --reverse`:
 | 11.7 | Generation spend accounting + spend UI |
 | 12.1 | Export asset bundling — a ZIP carrying the media, not pointers |
 | 12.2 | Timeline transitions that affect duration |
+| 12.3 | Audio tracks — sound on the ruler, and J/L cuts that do something |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -137,6 +138,17 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   side, and every clamp is surfaced in the inspector in words rather than
   silently applied. The player composites the two clips of a dissolve instead of
   cutting on a boundary the ruler has already shortened.
+- **Audio tracks** (12.3) — `AssetType.AUDIO`, `AudioTrack` (name, role, mute,
+  level) and `AudioClip` (position, trim, level, fades). Two kinds of sound,
+  kept apart: a clip's *sync* sound lives inside the video representing its
+  shot and is what a J- or L-cut moves; *track* sound is score, narration or
+  room tone, placed at a stated position against the picture. A J-cut plays a
+  clip's source from before its in point and an L-cut plays the previous clip's
+  past its out point, so both are limited by trim handles that actually exist
+  and every limit is reported in words. Sound plays in the previz player
+  through its own elements, separately positioned from the picture — which is
+  what makes a J-cut audible rather than merely recorded. An unmeasured file
+  has an unknown length and says so instead of being given a plausible one.
 
 ---
 
@@ -154,10 +166,13 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
 
 ## 5. NOT IMPLEMENTED
 
-- **Audio** — shot-level dialogue/SFX/music are text fields. No audio tracks,
-  waveforms, or J/L-cut offsets. This is what J- and L-cuts are waiting on:
-  both are straight cuts in the picture, so there is nothing for the timing
-  layer to do with them until there is sound to offset.
+- **Waveform display** — an audio placement is a bar with a caption, not a
+  picture of its contents. Drawing one needs the file decoded client-side.
+- **A rendered mixdown** — the export carries the source files and the mix
+  decisions; it does not render them into a single audio track or a muxed
+  video. That needs an encoding pipeline this app does not have.
+- **Gain above unity in the preview** — stored and flagged, but
+  `HTMLMediaElement.volume` caps at 1, so previewing a boost needs Web Audio.
 - **Image-to-video from a generated still in the UI** — the adapter supports it;
   the pipeline supports it; the end-to-end UX is thin.
 - **Spend ceilings** (as opposed to attempt ceilings).
@@ -221,14 +236,16 @@ src/lib/
     usage.ts                ledger writes + spend/breakdown/attribution reads
   media.ts                  the media authorization boundary
   generation-limits.ts      hard attempt ceilings
-  timeline.ts, blocking.ts, continuity.ts, diff.ts
+  timeline.ts               picture timing: trims, dissolves, the ruler
+  audio.ts                  sound timing: J/L cuts, tracks, levels, fades
+  blocking.ts, continuity.ts, diff.ts
   export/                   build, csv, pdf, types
     zip.ts                  STORE-only streaming ZIP writer
     bundle.ts               the production bundle: media + manifest
 
 scripts/                    worker + 9 verification/migration scripts
 docs/                       veo-api-contract.md, PROJECT_STATUS.md
-prisma/                     schema + 17 migrations
+prisma/                     schema + 18 migrations
 ```
 
 ---
@@ -359,7 +376,7 @@ Ordered by risk retired per unit of effort.
 **B. Make the output deliverable**
 4. ~~Export asset bundling~~ — **done** (12.1).
 5. ~~Timeline transitions that affect duration~~ — **done** (12.2).
-6. Audio tracks.
+6. ~~Audio tracks~~ — **done** (12.3).
 7. Image-to-video from a generated still, end to end in the UI.
 
 **C. Make it safe to expose to other people**
@@ -377,17 +394,20 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Audio tracks.**
+**Spend ceilings, not just attempt ceilings** (priority #4 on the agreed list).
 
-Transitions are done, and finishing them made the case for audio concretely
-rather than abstractly: J- and L-cuts are the only two edit points the timing
-layer cannot model, and both are blocked on the same missing thing. Sound is
-also the largest remaining gap between what this produces and something a
-filmmaker would show anyone — a silent previz reel is half a reel.
+Audio was the last of the three feature items in the agreed order that could be
+built without touching provider credentials or the authorization model. What is
+left splits cleanly: spend ceilings and the collaborator invite flow are both
+about making the app safe to put in front of other people, and the ceiling is
+the smaller of the two.
 
-The data model is ready for it: `Sequence` and `TimelineClip` are real entities,
-so an `AudioTrack` related to `Sequence` and a clip-level offset are additive
-rather than a rewrite.
+The ledger from 11.7 already records per-attempt cost. A ceiling is a check
+against that ledger before a generation is queued, in the same place the
+existing attempt limits are enforced — so it reuses the accounting rather than
+starting a second one. The honest complication is that an unpriced provider
+produces a null cost, and a ceiling that treats null as zero would let unpriced
+generations run forever; that has to be a stated policy, not an accident.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

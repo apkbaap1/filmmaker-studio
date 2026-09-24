@@ -566,7 +566,7 @@ describe("what each edit point does to the ruler", () => {
       assert.equal(layout.clips[1].transition?.overlapSeconds, 0);
       assert.match(
         describeTransitionEffect(layout.clips[1].transition!),
-        /Audio tracks are not implemented yet/
+        /moves the sound, not the picture/
       );
     }
   });

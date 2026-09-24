@@ -208,7 +208,7 @@ export const temporalShotSchema = z.object({
 
 export const assetUploadSchema = z.object({
   caption: z.string().max(300).optional().or(z.literal("")),
-  type: z.enum(["IMAGE", "VIDEO", "DIAGRAM"]),
+  type: z.enum(["IMAGE", "VIDEO", "DIAGRAM", "AUDIO"]),
 });
 
 export const generateImageSchema = z.object({
@@ -263,6 +263,34 @@ export const clipTransitionSchema = z.object({
     .nullable(),
   durationSeconds: z.coerce.number().min(0).max(30).nullable(),
 });
+
+/**
+ * A lane of sound. `gainDb` null is unity — no level stated — which the schema
+ * has to keep reachable, so it is nullable rather than defaulted to 0.
+ */
+export const audioTrackSchema = z.object({
+  name: z.string().min(1, "Name the track").max(120),
+  role: z.enum(["DIALOGUE", "MUSIC", "SFX", "AMBIENCE"]),
+  // -60 dB is silence for practical purposes and +12 is as much boost as a
+  // preview mix has any business asking for.
+  gainDb: z.coerce.number().min(-60).max(12).nullable(),
+  muted: z.boolean(),
+});
+
+export const audioClipSchema = z
+  .object({
+    startSeconds: z.coerce.number().min(0).max(36000),
+    inPointSeconds: z.coerce.number().min(0).max(36000),
+    outPointSeconds: z.coerce.number().min(0).max(36000).nullable(),
+    gainDb: z.coerce.number().min(-60).max(12).nullable(),
+    // Null is "no ramp asked for", which stays distinct from a ramp of zero.
+    fadeInSeconds: z.coerce.number().min(0).max(60).nullable(),
+    fadeOutSeconds: z.coerce.number().min(0).max(60).nullable(),
+  })
+  .refine((c) => c.outPointSeconds === null || c.outPointSeconds > c.inPointSeconds, {
+    message: "The out point must come after the in point",
+    path: ["outPointSeconds"],
+  });
 
 export const assetMediaInfoSchema = z.object({
   durationSeconds: z.coerce.number().positive().max(36000).optional(),

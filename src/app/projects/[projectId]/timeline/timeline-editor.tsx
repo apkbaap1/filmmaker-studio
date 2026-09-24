@@ -12,9 +12,30 @@ import {
   type LaidOutClip,
 } from "@/lib/timeline";
 import { addClipAction, populateSequenceAction, reorderClipsAction } from "@/lib/actions/timeline";
+import {
+  audioClipsAtTime,
+  layOutAudioTrack,
+  layOutSyncAudio,
+  previewVolume,
+  sequenceRuntime,
+} from "@/lib/audio";
 import { ClipInspector, TRANSITION_LABEL } from "./clip-inspector";
 import { TimelinePlayer, type PlayerLayer } from "./timeline-player";
-import type { AssetRef, ClipRef, SceneRef, SequenceRef, ShotRef } from "./types";
+import { AudioEngine, type Sound } from "./audio-engine";
+import {
+  AddAudioTrack,
+  AudioClipInspector,
+  AudioTrackHeader,
+  AudioTrackLane,
+} from "./audio-tracks";
+import type {
+  AssetRef,
+  AudioTrackRef,
+  ClipRef,
+  SceneRef,
+  SequenceRef,
+  ShotRef,
+} from "./types";
 
 /** Pixels per second at zoom 1. Zoom multiplies it. */
 const BASE_PX_PER_SECOND = 28;
@@ -32,6 +53,8 @@ export function TimelineEditor({
   projectId,
   sequence,
   clips,
+  audioTracks,
+  audioAssets,
   shots,
   scenes,
   unplacedShotIds,
@@ -39,12 +62,16 @@ export function TimelineEditor({
   projectId: string;
   sequence: SequenceRef;
   clips: ClipRef[];
+  audioTracks: AudioTrackRef[];
+  /** Every audio asset in the project, placeable on any track. */
+  audioAssets: AssetRef[];
   shots: Record<string, ShotRef>;
   scenes: Record<string, SceneRef>;
   unplacedShotIds: string[];
 }) {
   const [zoom, setZoom] = useState(1);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [selectedAudioClipId, setSelectedAudioClipId] = useState<string | null>(null);
   const [playheadSeconds, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -67,6 +94,45 @@ export function TimelineEditor({
         };
       }),
     [clips, shots]
+  );
+
+  const assetsById = useMemo(() => {
+    const map: Record<string, AssetRef> = {};
+    for (const asset of audioAssets) map[asset.id] = asset;
+    for (const shot of Object.values(shots)) for (const a of shot.assets) map[a.id] = a;
+    return map;
+  }, [audioAssets, shots]);
+
+  // Sound laid out against the picture that has already been positioned: a
+  // J-cut's reach is measured from where the dissolves left things.
+  const syncAudio = useMemo(
+    () =>
+      layOutSyncAudio(layout, (clip) => {
+        const shot = shots[clip.shotId];
+        const asset = assetFor(shot, clip);
+        const isVideo = Boolean(asset?.mimeType.startsWith("video/"));
+        return { hasAudio: isVideo, sourceSeconds: isVideo ? asset?.durationSeconds ?? null : null };
+      }),
+    [layout, shots]
+  );
+
+  const trackLayouts = useMemo(
+    () =>
+      audioTracks.map((track) => ({
+        track,
+        layout: layOutAudioTrack(track.clips, (clip) => assetsById[clip.assetId]?.durationSeconds ?? null),
+      })),
+    [audioTracks, assetsById]
+  );
+
+  const runtime = useMemo(
+    () =>
+      sequenceRuntime(
+        layout.totalSeconds,
+        syncAudio.endSeconds,
+        trackLayouts.map((t) => t.layout.endSeconds)
+      ),
+    [layout.totalSeconds, syncAudio.endSeconds, trackLayouts]
   );
 
   const sceneGroups = useMemo(
@@ -97,21 +163,82 @@ export function TimelineEditor({
 
   const selected = layout.clips.find((e) => e.clip.id === selectedClipId);
 
+  const selectedAudio = useMemo(() => {
+    for (const { track, layout: trackLayout } of trackLayouts) {
+      const entry = trackLayout.clips.find((c) => c.clip.id === selectedAudioClipId);
+      if (entry) return { track, entry };
+    }
+    return undefined;
+  }, [trackLayouts, selectedAudioClipId]);
+
+  /**
+   * Every sound that could play, with its position and level at the playhead.
+   *
+   * Computed for all of them rather than only the sounding ones so the engine's
+   * elements stay mounted and loaded; a silent one is handed a null position
+   * and pauses itself.
+   */
+  const sounds = useMemo((): Sound[] => {
+    const list: Sound[] = [];
+
+    for (const segment of syncAudio.segments) {
+      const shot = shots[segment.clip.shotId];
+      const asset = assetFor(shot, segment.clip);
+      if (!asset?.mimeType.startsWith("video/")) continue;
+      const sounding =
+        !segment.silent &&
+        playheadSeconds >= segment.startSeconds &&
+        playheadSeconds < segment.endSeconds;
+      list.push({
+        key: `sync-${segment.clip.id}`,
+        assetId: asset.id,
+        sourceSeconds: sounding
+          ? segment.sourceInSeconds + (playheadSeconds - segment.startSeconds)
+          : null,
+        // Sync sound carries no level of its own: a clip is either in the mix
+        // or muted. A per-clip gain would be a mixing feature, and inventing
+        // one here would be a control nothing else in the app knows about.
+        volume: 1,
+        measured: asset.durationSeconds !== null,
+      });
+    }
+
+    for (const { track, layout: trackLayout } of trackLayouts) {
+      for (const entry of trackLayout.clips) {
+        const active = track.muted
+          ? []
+          : audioClipsAtTime(trackLayout, playheadSeconds, track.gainDb).filter(
+              (a) => a.laidOut.clip.id === entry.clip.id
+            );
+        const sounding = active[0];
+        list.push({
+          key: `track-${entry.clip.id}`,
+          assetId: entry.clip.assetId,
+          sourceSeconds: sounding ? sounding.sourceSeconds : null,
+          volume: sounding ? previewVolume(sounding.gain) : 0,
+          measured: entry.measured,
+        });
+      }
+    }
+
+    return list;
+  }, [syncAudio, trackLayouts, shots, playheadSeconds]);
+
   // --- playback -------------------------------------------------------------
   useEffect(() => {
     if (!playing) return;
     const timer = setInterval(() => {
       setPlayhead((t) => {
         const next = t + TICK_MS / 1000;
-        if (next >= layout.totalSeconds) {
+        if (next >= runtime.totalSeconds) {
           setPlaying(false);
-          return layout.totalSeconds;
+          return runtime.totalSeconds;
         }
         return next;
       });
     }, TICK_MS);
     return () => clearInterval(timer);
-  }, [playing, layout.totalSeconds]);
+  }, [playing, runtime.totalSeconds]);
 
   const seekToPixel = useCallback(
     (clientX: number) => {
@@ -119,9 +246,9 @@ export function TimelineEditor({
       if (!track) return;
       const rect = track.getBoundingClientRect();
       const seconds = (clientX - rect.left + track.scrollLeft) / pxPerSecond;
-      setPlayhead(Math.min(Math.max(seconds, 0), layout.totalSeconds));
+      setPlayhead(Math.min(Math.max(seconds, 0), runtime.totalSeconds));
     },
-    [pxPerSecond, layout.totalSeconds]
+    [pxPerSecond, runtime.totalSeconds]
   );
 
   // --- reorder --------------------------------------------------------------
@@ -140,11 +267,11 @@ export function TimelineEditor({
   const ticks = useMemo(() => {
     const step = zoom >= 4 ? 1 : zoom >= 2 ? 2 : zoom >= 1 ? 5 : 10;
     const marks: number[] = [];
-    for (let t = 0; t <= Math.max(layout.totalSeconds, step); t += step) marks.push(t);
+    for (let t = 0; t <= Math.max(runtime.totalSeconds, step); t += step) marks.push(t);
     return marks;
-  }, [zoom, layout.totalSeconds]);
+  }, [zoom, runtime.totalSeconds]);
 
-  const trackWidth = Math.max(layout.totalSeconds * pxPerSecond, 480);
+  const trackWidth = Math.max(runtime.totalSeconds * pxPerSecond, 480);
 
   return (
     <div className="space-y-4">
@@ -157,17 +284,18 @@ export function TimelineEditor({
             mixProgress={current?.incoming?.progress ?? 0}
             playing={playing}
             playheadSeconds={playheadSeconds}
-            totalSeconds={layout.totalSeconds}
+            totalSeconds={runtime.totalSeconds}
           />
+          <AudioEngine projectId={projectId} sounds={sounds} playing={playing} />
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               onClick={() => {
-                if (playheadSeconds >= layout.totalSeconds) setPlayhead(0);
+                if (playheadSeconds >= runtime.totalSeconds) setPlayhead(0);
                 setPlaying((p) => !p);
               }}
-              disabled={layout.totalSeconds === 0}
+              disabled={runtime.totalSeconds === 0}
             >
               {playing ? "Pause" : "Play"}
             </Button>
@@ -176,7 +304,16 @@ export function TimelineEditor({
             </Button>
             <span className="font-mono text-sm text-foreground">{formatTimecode(playheadSeconds)}</span>
             <span className="text-xs text-muted">
-              of {formatDuration(layout.totalSeconds)} · {layout.clips.length} clips
+              of {formatDuration(runtime.totalSeconds)} · {layout.clips.length} clips
+              {runtime.audioSeconds > runtime.pictureSeconds && (
+                <span
+                  className="text-accent"
+                  title={`The cut runs ${formatDuration(runtime.pictureSeconds)}; sound carries on past the last frame.`}
+                >
+                  {" "}
+                  · sound to {formatDuration(runtime.audioSeconds)}
+                </span>
+              )}
               {layout.overlapSeconds > 0 && (
                 <span
                   className="text-accent"
@@ -204,10 +341,19 @@ export function TimelineEditor({
         </div>
 
         <div>
-          {selected ? (
+          {selectedAudio ? (
+            <AudioClipInspector
+              projectId={projectId}
+              track={selectedAudio.track}
+              entry={selectedAudio.entry}
+              asset={assetsById[selectedAudio.entry.clip.assetId]}
+              onDeselect={() => setSelectedAudioClipId(null)}
+            />
+          ) : selected ? (
             <ClipInspector
               projectId={projectId}
               entry={selected}
+              audio={syncAudio.segments.find((seg) => seg.clip.id === selected.clip.id)}
               shot={shots[selected.clip.shotId]}
               scene={scenes[shots[selected.clip.shotId]?.sceneId ?? ""]}
               playheadSeconds={playheadSeconds}
@@ -243,7 +389,28 @@ export function TimelineEditor({
             </Button>
           </div>
         ) : (
-          <div ref={trackRef} className="overflow-x-auto">
+          <div className="flex">
+            <div className="w-44 shrink-0 border-r border-border bg-surface-2">
+              <div className="h-7 border-b border-border" />
+              <div className="h-6 border-b border-border" />
+              <div
+                className="flex items-center border-b border-border px-2 text-[11px] font-semibold text-muted"
+                style={{ height: 112 }}
+              >
+                PICTURE
+              </div>
+              {trackLayouts.map(({ track }) => (
+                <AudioTrackHeader
+                  key={track.id}
+                  projectId={projectId}
+                  track={track}
+                  audioAssets={audioAssets}
+                  playheadSeconds={playheadSeconds}
+                />
+              ))}
+            </div>
+
+            <div ref={trackRef} className="flex-1 overflow-x-auto">
             <div className="relative" style={{ width: trackWidth, minWidth: "100%" }}>
               {/* time ruler */}
               <div
@@ -335,18 +502,56 @@ export function TimelineEditor({
                   />
                 ))}
 
-                {/* Playhead. Starts above this row so it crosses the ruler and
-                    the scene band too, which is how you read its position. */}
-                <div
-                  className="pointer-events-none absolute bottom-0 z-20 w-px bg-accent"
-                  style={{ left: playheadSeconds * pxPerSecond, top: -52 }}
-                >
-                  <div className="-ml-[3px] h-[7px] w-[7px] rounded-full bg-accent" />
-                </div>
               </div>
+
+              {/* --- audio lanes ----------------------------------------- */}
+              {trackLayouts.map(({ track, layout: trackLayout }) => (
+                <AudioTrackLane
+                  key={track.id}
+                  track={track}
+                  layout={trackLayout}
+                  assets={assetsById}
+                  pxPerSecond={pxPerSecond}
+                  selectedClipId={selectedAudioClipId}
+                  onSelectClip={(clipId) => {
+                    setSelectedAudioClipId(clipId);
+                    setSelectedClipId(null);
+                    setPlaying(false);
+                  }}
+                />
+              ))}
+
+              {/* Playhead. Spans every row, which is how its position is read:
+                  a sound is under the picture it plays with, or deliberately
+                  is not. */}
+              <div
+                className="pointer-events-none absolute inset-y-0 z-30 w-px bg-accent"
+                style={{ left: playheadSeconds * pxPerSecond }}
+              >
+                <div className="-ml-[3px] h-[7px] w-[7px] rounded-full bg-accent" />
+              </div>
+            </div>
             </div>
           </div>
         )}
+      </Card>
+
+      {/* --- audio tracks ---------------------------------------------------- */}
+      <Card className="p-4">
+        <p className="text-sm font-semibold text-foreground">Sound</p>
+        <p className="mb-3 mt-1 text-xs text-muted">
+          A track carries sound that is not tied to a shot: a score, a narration pass, room tone.
+          Sound that belongs to a shot is inside the video that shot plays, and is muted from the
+          clip inspector rather than from here.
+          {audioAssets.length === 0 && (
+            <>
+              {" "}
+              No audio has been uploaded to this project yet — add some from the Visualization tab,
+              then place it at the playhead.
+            </>
+          )}
+        </p>
+        <AddAudioTrack projectId={projectId} sequenceId={sequence.id} />
       </Card>
 
       {/* --- shots not in this edit ------------------------------------------ */}

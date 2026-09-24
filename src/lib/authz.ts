@@ -46,6 +46,8 @@ export const scopedTo = {
   scheduleItem: (projectId: string) => ({ scheduleDay: { projectId } }),
   budgetLineItem: (projectId: string) => ({ category: { projectId } }),
   timelineClip: (projectId: string) => ({ sequence: { projectId } }),
+  audioTrack: (projectId: string) => ({ sequence: { projectId } }),
+  audioClip: (projectId: string) => ({ track: { sequence: { projectId } } }),
   promptVersion: (projectId: string) => ({ shot: { scene: { projectId } } }),
 } as const;
 

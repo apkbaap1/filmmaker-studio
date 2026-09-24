@@ -1,6 +1,11 @@
 import "server-only";
 
-import { listProjectAssets, readAssetBytes, type AuthorizedAsset } from "@/lib/media";
+import {
+  EXTENSION_BY_MIME,
+  listProjectAssets,
+  readAssetBytes,
+  type AuthorizedAsset,
+} from "@/lib/media";
 import { buildExportPackage } from "./build.ts";
 import { exportCsv } from "./csv.ts";
 import { exportPdf } from "./pdf.ts";
@@ -98,25 +103,16 @@ export interface BundleOptions {
   listAssets?: (projectId: string) => Promise<AuthorizedAsset[]>;
 }
 
-const EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-};
-
 /**
  * Picks a file extension from the recorded mime type.
  *
- * Falls back to `.bin` rather than guessing from the caption or the storage
- * key: a wrong extension tells an editor's import a confident lie about the
- * contents, where `.bin` merely tells it nothing.
+ * The table is the storage layer's own, so a format the application accepts is
+ * a format the bundle can name. Falls back to `.bin` rather than guessing from
+ * the caption or the storage key: a wrong extension tells an editor's import a
+ * confident lie about the contents, where `.bin` merely tells it nothing.
  */
 export function extensionFor(mimeType: string): string {
-  return EXTENSIONS[mimeType.toLowerCase()] ?? "bin";
+  return EXTENSION_BY_MIME[mimeType.toLowerCase()] ?? "bin";
 }
 
 export function bundlePathFor(assetId: string, mimeType: string): string {
@@ -291,8 +287,30 @@ function assetIndex(pkg: ExportPackage, recorded: BundledAsset[]): string {
     lines.push("");
   }
 
+  // Sound placed on a track, so an editor opening the archive can find the
+  // score without reading the manifest. Audio is not attached to a shot, so
+  // without this it would only ever appear in the orphan list below.
+  const placedAudio = new Set<string>();
+  for (const track of pkg.timeline?.audioTracks ?? []) {
+    lines.push(`AUDIO TRACK — ${track.name} (${track.role.toLowerCase()})${track.muted ? " — MUTED" : ""}`);
+    if (track.clips.length === 0) lines.push("    (no placements)");
+    for (const placement of track.clips) {
+      placedAudio.add(placement.assetId);
+      const record = byId.get(placement.assetId);
+      const where = record?.bundlePath ?? `NOT IN BUNDLE — ${record?.reason ?? "unknown"}`;
+      const at =
+        placement.endSeconds === null
+          ? `${placement.startSeconds}s–? (length not measured)`
+          : `${placement.startSeconds}s–${placement.endSeconds}s`;
+      lines.push(`    ${at}: ${where}${placement.caption ? ` — ${placement.caption}` : ""}`);
+    }
+    lines.push("");
+  }
+
   const orphans = recorded.filter(
-    (r) => !pkg.scenes.some((s) => s.shots.some((sh) => sh.assets.some((a) => a.id === r.assetId)))
+    (r) =>
+      !placedAudio.has(r.assetId) &&
+      !pkg.scenes.some((s) => s.shots.some((sh) => sh.assets.some((a) => a.id === r.assetId)))
   );
   if (orphans.length > 0) {
     lines.push("PROJECT-LEVEL ASSETS (not attached to a shot)");
@@ -325,7 +343,8 @@ CONTENTS
   shot-list.csv          The shot list, for a spreadsheet.
   production-report.pdf  A readable report.
   ASSETS.txt             scene -> shot -> file, for finding things by hand.
-  assets/                The media. One file per asset, named by its id.
+  assets/                The media, sound included. One file per asset, named
+                         by its id.
 
 ASSETS
   ${completeness}

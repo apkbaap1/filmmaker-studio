@@ -134,6 +134,17 @@ export interface ExportTimeline {
   straightCutSeconds: number;
   /** The difference: seconds played once instead of twice. */
   overlapSeconds: number;
+  /**
+   * How long the sequence runs once sound is counted. A music bed outlasting
+   * the last shot, or an L-cut carrying sound past the final frame, makes the
+   * mix longer than the cut — two separate facts, both reported.
+   */
+  runtime: {
+    pictureSeconds: number;
+    audioSeconds: number;
+    totalSeconds: number;
+  };
+  audioTracks: ExportAudioTrack[];
   clips: Array<{
     shotId: string;
     shotNumber: string;
@@ -151,7 +162,54 @@ export interface ExportTimeline {
     transitionEffectiveSeconds: number | null;
     /** How much it shortened the edit. Non-zero only for a dissolve. */
     overlapSeconds: number;
+    /** True when this edit silences the clip's own sound. */
+    audioMuted: boolean;
+    /**
+     * Where the clip's own sound plays. A J- or L-cut moves this off the
+     * picture range above; otherwise the two match.
+     */
+    audio: {
+      startSeconds: number;
+      endSeconds: number;
+      offsetFromPicture: boolean;
+      silent: boolean;
+      silentReason: "muted" | "no-audio" | null;
+    } | null;
     selectedAssetId: string | null;
+  }>;
+}
+
+/**
+ * A lane of sound under the edit: score, narration, effects, room tone.
+ *
+ * Sound that belongs to a shot is not here — it is in the clip's own `audio`
+ * above, because it lives inside the video the shot plays.
+ */
+export interface ExportAudioTrack {
+  id: string;
+  name: string;
+  role: string;
+  muted: boolean;
+  /** Null is unity: no level was stated. */
+  gainDb: number | null;
+  /** Null when nothing on the track has a known length. */
+  endSeconds: number | null;
+  clips: Array<{
+    id: string;
+    assetId: string;
+    caption: string | null;
+    startSeconds: number;
+    /** Null when the file has never been decoded and no out point was stated. */
+    endSeconds: number | null;
+    usedSeconds: number | null;
+    inPointSeconds: number;
+    outPointSeconds: number | null;
+    gainDb: number | null;
+    fadeInSeconds: number | null;
+    fadeOutSeconds: number | null;
+    /** False when the length above is unknown rather than measured. */
+    lengthMeasured: boolean;
+    notes: string | null;
   }>;
 }
 

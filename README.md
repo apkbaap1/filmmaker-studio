@@ -233,6 +233,7 @@ locations, equipment, and budget tracking.
   8. ✅ Camera blocking diagram (draggable top-down 2D)
   9. ✅ Continuity tracking + warnings across shots
   10. ✅ Prompt Studio UI (inspector, versions, per-provider tabs) + export package
+  11. ✅ Audio tracks (roles, levels, fades, J/L cuts, previz playback)
 
 ## Getting started
 
@@ -375,17 +376,28 @@ deployable:
 | **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
 | **Billing / quotas** | Hard ceilings, plus a per-attempt spend ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`; a UI for the totals |
 | **Export assets** | JSON, CSV, PDF, and a ZIP bundle carrying the media itself | ZIP64, for a bundle or single asset over 4 GiB |
-| **Timeline transitions** | Dissolves overlap and shorten the ruler; fades run through black; cuts are instant | J- and L-cuts, which move sound rather than picture — they need audio tracks |
-| **Audio** | Shot-level dialogue/SFX/music text fields | Real audio tracks, waveforms, J/L-cut offsets |
+| **Timeline transitions** | All six edit points: dissolves overlap and shorten the ruler, fades run through black, cuts are instant, J- and L-cuts move the sound | — |
+| **Audio** | Audio assets, tracks with roles and levels, placements with trims and fades, J/L-cut offsets, playback in the previz player | Waveform display; a rendered mixdown |
 
-J- and L-cuts are the one place those two rows meet. Both are straight cuts in
-the picture; what moves is the sound. There are no audio tracks yet, so the
-stated offset is stored and the timeline reports it as unmodelled rather than
-quietly treating it as a dissolve — which is the one thing it must never become.
+J- and L-cuts are where those two rows meet. Both are straight cuts in the
+picture; what moves is the sound, and how far it can move is decided by material
+that actually exists. Revealing a clip's sound early means playing its source
+from before its in point, so a clip trimmed hard against the head of its file has
+nothing to reveal and the cut is refused with that said in words. What a J- or
+L-cut must never quietly become is a dissolve, and keeping picture timing
+(`src/lib/timeline.ts`) apart from sound timing (`src/lib/audio.ts`) is what
+stops it.
 
-The timeline's data model is shaped so audio is additive: `Sequence` and
-`TimelineClip` are proper entities, so markers, beat markers and audio tracks
-attach as new related tables rather than a rewrite.
+Two things the sound layer deliberately does not do. It never invents a length:
+an audio file the browser has not decoded has an unknown length, and its
+placement is drawn as a marker rather than a bar of a plausible width. And a
+level nobody stated stays distinguishable from 0 dB, even though the two sound
+identical — the same omission-by-default rule the prompt compiler runs on.
+
+The preview player cannot boost above unity, because `HTMLMediaElement.volume`
+tops out at 1. A track set louder than unity is stored at that level, previewed
+clamped, and flagged in the track header rather than silently playing quieter
+than the mix asks for.
 
 ## Storage
 

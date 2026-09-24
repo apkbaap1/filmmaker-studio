@@ -134,8 +134,44 @@ export async function exportPdf(pkg: ExportPackage): Promise<Uint8Array> {
           // limited by the material on either side plays shorter, and a report
           // quoting the stated figure would describe an edit that is not there.
           (clip.transitionEffectiveSeconds ? ` ${clip.transitionEffectiveSeconds}s` : "") +
-          (clip.overlapSeconds > 0 ? ` (overlaps −${clip.overlapSeconds}s)` : "")
+          (clip.overlapSeconds > 0 ? ` (overlaps −${clip.overlapSeconds}s)` : "") +
+          // Only worth a line when the sound is not simply under its own
+          // picture: a J- or L-cut, or a clip this edit plays silent.
+          (clip.audioMuted
+            ? " · sound muted"
+            : clip.audio?.offsetFromPicture
+              ? ` · sound ${clip.audio.startSeconds}s–${clip.audio.endSeconds}s`
+              : "")
       );
+    }
+
+    if (pkg.timeline.audioTracks.length > 0) {
+      gap(ctx, 4);
+      muted(
+        ctx,
+        `Sound runs to ${pkg.timeline.runtime.audioSeconds}s; the cut runs to ${pkg.timeline.runtime.pictureSeconds}s`
+      );
+      for (const track of pkg.timeline.audioTracks) {
+        body(
+          ctx,
+          `${track.name} (${track.role.toLowerCase()})` +
+            (track.muted ? " · MUTED" : "") +
+            // Null gain is unity — no level stated — so it prints nothing
+            // rather than "0 dB", which would be a level someone chose.
+            (track.gainDb === null ? "" : ` · ${track.gainDb > 0 ? "+" : ""}${track.gainDb} dB`) +
+            ` · ${track.clips.length} placements`
+        );
+        for (const clip of track.clips) {
+          body(
+            ctx,
+            `    ${clip.caption ?? clip.assetId} · ${clip.startSeconds}s–` +
+              (clip.endSeconds === null ? "? (length not measured)" : `${clip.endSeconds}s`) +
+              (clip.gainDb === null ? "" : ` · ${clip.gainDb > 0 ? "+" : ""}${clip.gainDb} dB`) +
+              (clip.fadeInSeconds ? ` · fade in ${clip.fadeInSeconds}s` : "") +
+              (clip.fadeOutSeconds ? ` · fade out ${clip.fadeOutSeconds}s` : "")
+          );
+        }
+      }
     }
   }
 

@@ -10,6 +10,8 @@ import {
   TRANSITION_TIMING,
   type LaidOutClip,
 } from "@/lib/timeline";
+import { describeAudioBoundary, type SyncAudioSegment } from "@/lib/audio";
+import { setClipAudioMutedAction } from "@/lib/actions/audio";
 import {
   removeClipAction,
   selectClipAssetAction,
@@ -52,6 +54,7 @@ function assetLabel(asset: AssetRef): string {
 export function ClipInspector({
   projectId,
   entry,
+  audio,
   shot,
   scene,
   playheadSeconds,
@@ -59,6 +62,8 @@ export function ClipInspector({
 }: {
   projectId: string;
   entry: LaidOutClip<ClipRef>;
+  /** Where this clip's own sound plays. Undefined only if the layouts disagree. */
+  audio: SyncAudioSegment<ClipRef> | undefined;
   shot: ShotRef | undefined;
   scene: SceneRef | undefined;
   playheadSeconds: number;
@@ -277,6 +282,47 @@ export function ClipInspector({
             shots on either side.
           </p>
         )}
+        {audio && (
+          <div className="mt-3 border-t border-border pt-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+              This clip&rsquo;s own sound
+            </p>
+
+            {audio.headBoundary && (
+              <p
+                className={[
+                  "mb-2 rounded border px-2 py-1.5 text-xs",
+                  audio.headBoundary.note === null
+                    ? "border-border bg-surface-2 text-foreground"
+                    : "border-accent/50 bg-accent/10 text-foreground",
+                ].join(" ")}
+              >
+                {describeAudioBoundary(audio.headBoundary)}
+              </p>
+            )}
+
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={clip.audioMuted}
+                disabled={pending}
+                onChange={(e) =>
+                  run(() => setClipAudioMutedAction(projectId, clip.id, e.target.checked))
+                }
+              />
+              Play this clip silent
+            </label>
+
+            <p className="mt-1 text-xs text-muted">
+              {audio.silentReason === "no-audio"
+                ? "This clip is standing in with a still, so it has no sound of its own to play."
+                : audio.offsetFromPicture
+                  ? `Sound runs ${formatTimecode(audio.startSeconds)}–${formatTimecode(audio.endSeconds)}, against picture ${formatTimecode(entry.startSeconds)}–${formatTimecode(entry.endSeconds)}.`
+                  : "Sound runs with the picture. Muting it leaves the shot, the generation and the file untouched."}
+            </p>
+          </div>
+        )}
+
         {shot.transitionNote && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-muted">Shot Builder note: &ldquo;{shot.transitionNote}&rdquo;</span>

@@ -7,7 +7,7 @@ import type { AssetScope, FormState } from "@/lib/actions/assets";
 
 export type AssetItem = {
   id: string;
-  type: "IMAGE" | "VIDEO" | "DIAGRAM";
+  type: "IMAGE" | "VIDEO" | "DIAGRAM" | "AUDIO";
   source: "UPLOADED" | "GENERATED";
   mimeType: string;
   caption: string | null;
@@ -25,6 +25,10 @@ function AssetThumb({ projectId, asset }: { projectId: string; asset: AssetItem 
           <img src={src} alt={asset.caption ?? "Visual reference"} className="h-full w-full object-cover" />
         ) : asset.mimeType.startsWith("video/") ? (
           <video src={src} controls className="h-full w-full object-cover" />
+        ) : asset.mimeType.startsWith("audio/") ? (
+          // A player rather than a thumbnail: a waveform would need the file
+          // decoded and this only needs it heard.
+          <audio src={src} controls preload="metadata" className="w-full px-3" />
         ) : (
           <a href={src} target="_blank" rel="noreferrer" className="text-sm text-accent hover:underline">
             Open file
@@ -78,7 +82,7 @@ function UploadForm({ projectId, scope }: { projectId: string; scope: AssetScope
             type="file"
             name="file"
             required
-            accept="image/*,video/*,application/pdf"
+            accept="image/*,video/*,audio/*,application/pdf"
             className="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-sm file:text-foreground"
           />
         </Field>
@@ -88,6 +92,7 @@ function UploadForm({ projectId, scope }: { projectId: string; scope: AssetScope
               <option value="IMAGE">Storyboard / image</option>
               <option value="DIAGRAM">Diagram</option>
               <option value="VIDEO">Video reference</option>
+              <option value="AUDIO">Audio — music, dialogue, effects</option>
             </Select>
           </Field>
           <Field label="Caption">
