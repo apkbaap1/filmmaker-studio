@@ -17,7 +17,8 @@ import { statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
-const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const SRC = path.join(ROOT, "src");
 
 function isFile(candidate) {
   try {
@@ -37,6 +38,17 @@ export function resolve(specifier, context, nextResolve) {
   if (specifier.startsWith("@/")) {
     const target = resolveFile(path.join(SRC, specifier.slice(2)));
     if (target) return nextResolve(pathToFileURL(target).href, context);
+  }
+
+  // A Next subpath import — `next/navigation`, `next/cache`. Next ships these
+  // as plain `.js` files at its package root and relies on a bundler to find
+  // them; Node's resolver reports the bare form as a missing module. Resolving
+  // them here is what lets a server action be imported by a test at all, and
+  // therefore what lets the session be substituted and the action exercised
+  // directly rather than only described by reading its source.
+  if (/^next\/[\w-]+$/.test(specifier) && !path.extname(specifier)) {
+    const target = path.join(ROOT, "node_modules", `${specifier}.js`);
+    if (isFile(target)) return nextResolve(pathToFileURL(target).href, context);
   }
 
   // A relative import with no extension, which TypeScript permits and Node does not.

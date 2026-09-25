@@ -236,6 +236,7 @@ locations, equipment, and budget tracking.
   11. ✅ Audio tracks (roles, levels, fades, J/L cuts, previz playback)
   12. ✅ Collaborators — invitations, roles, removal
   13. ✅ A second image provider, and the seam audit that justified it
+  14. ✅ CI, a wired-in typecheck, and server actions tested directly
 
 ## Getting started
 

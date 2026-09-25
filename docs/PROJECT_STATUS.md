@@ -191,6 +191,20 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   no dimension parameter at all. It is now optional, absent meaning "does not
   accept a size". One field, no consumer changes. `provider-seam.test.ts` keeps
   every property the audit established.
+- **Production hardening** (12.7) — `npm run typecheck`, a `pretest` hook that
+  makes it impossible to run the suite without it, `npm run verify` for all four
+  gates, and `.github/workflows/verify.yml` running them on every push against a
+  real PostgreSQL, including a schema-drift check. Every gate used to be
+  something a person remembered.
+
+  The larger part was server-action test coverage. Two workstreams had tested
+  *around* the actions, because they reach for a NextAuth session and a
+  page-level `notFound()`, neither of which exists outside a request — the
+  workaround was static assertions over the source, which are good at noticing a
+  missing line and useless at noticing one that is present and wrong. Node's
+  module mocking closes it: the session is substituted and the real action runs
+  against a real database. The membership actions are covered directly, which is
+  where the workaround was most strained.
 
 ---
 
@@ -404,7 +418,12 @@ Until a real generation completes, Google Veo is **implemented, not verified**.
 
 ## 14. Last thing implemented
 
-**Workstream 12.6 — a second real image provider**: the Google Gemini image
+**Workstream 12.7 — production hardening**: `npm run verify`, a `pretest`
+typecheck, GitHub Actions running every gate against a real PostgreSQL, and the
+membership server actions tested directly for the first time — the session is
+substituted with Node's module mocking rather than worked around.
+
+Before that, **workstream 12.6 — a second real image provider**: the Google Gemini image
 adapter, its contract document, the `defaultSize` change that adding it
 exposed, and `provider-seam.test.ts`, which turns the audit's findings into a
 standing guard rather than a one-off report.
@@ -446,26 +465,30 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Production hardening** (priority #7, the last item on the agreed list).
+**Deployment** — the last thing between this and somebody else using it.
 
-The image seam is audited and held. A second *video* provider would audit the
-other half, but it is the weaker of the two remaining options: the video
-interface is the more constrained one (submit-then-poll, an explicit
-idempotency contract), and no non-Google video vendor's API can be established
-from here — outbound network to provider hosts is refused, and npm is the only
-reachable source of an authoritative contract.
+Every item on the agreed seven-point list is done, and so is the hardening that
+list ended with. What is left is not code this session can write alone:
 
-Hardening does not have that problem, and it is what actually stands between
-the current state and a deployment:
+  - Managed PostgreSQL, an S3 bucket, and the worker running as a real process
+    rather than a terminal somebody left open.
+  - `AUTH_URL`, a real `AUTH_SECRET`, and the provider credentials — which is
+    also what closes the two deferred live verifications.
+  - A mailer, which password reset is blocked on and which would let an
+    invitation be sent rather than copied by hand.
 
-  - `tsc --noEmit` is run by hand every workstream. Nothing stops a change
-    landing untypechecked, and it has caught a real defect in four of the last
-    five workstreams. It belongs in `npm test` and in CI.
-  - The server actions are the least-tested layer, because they reach for a
-    NextAuth session. Two workstreams have now worked *around* that with static
-    source assertions and real-database queries. A session harness would let
-    them be tested directly.
-  - There is no CI at all: every gate is something a person remembers to run.
+Each of those is a decision about hosting rather than a change to the codebase,
+which is why this is where the roadmap stops being something to implement and
+starts being something to choose.
+
+Two pieces of code do remain, both optional:
+
+  - A second *video* provider, to audit the other half of the seam. Weaker than
+    the image half was: no non-Google video vendor's contract can be
+    established from here, since outbound network to provider hosts is refused
+    and npm is the only reachable source of an authoritative one.
+  - The generation and timeline server actions, which can now be tested the same
+    way the membership ones are.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

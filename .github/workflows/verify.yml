@@ -1,0 +1,93 @@
+name: verify
+
+# Every gate this project has, run on every push and every pull request.
+#
+# Until now each one was something a person remembered to run. That worked while
+# one person was running them all in the same terminal; it is not a plan for a
+# second contributor, and it is not a plan for the day someone pushes a fix at
+# the end of a long afternoon.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # The test suite is not hermetic on purpose. Roughly a third of it runs
+    # against a real PostgreSQL — the queue's compare-and-swap claiming, the
+    # authorization scoping, the spend ledger, the invitation lifecycle. Those
+    # are exactly the things a fake database would get wrong in the same
+    # direction as the code under test.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: filmmaker_studio_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/filmmaker_studio_test
+      # Not a secret: this value signs nothing that leaves the job, and the
+      # suite needs *a* value rather than a particular one. A real deployment's
+      # AUTH_SECRET never appears here.
+      AUTH_SECRET: ci-only-not-a-real-secret-ci-only-not-a-real-secret
+      # `next build` refuses to start without knowing it may trust its host.
+      AUTH_TRUST_HOST: "true"
+      # Deliberately absent: OPENAI_API_KEY, GOOGLE_API_KEY, S3_*. No provider
+      # credential belongs in CI, and no test needs one — the adapter tests talk
+      # to a local server that speaks the provider's protocol, which is the
+      # point of writing them that way.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The peer-dependency graph does not resolve without this. It is in the
+      # README for the same reason it is here: an install that works only by
+      # accident is one that breaks on a clean machine.
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # Not `migrate dev`: `deploy` fails rather than inventing a migration, so
+      # a schema edited without a migration is caught here instead of drifting
+      # into a deployment.
+      - name: Check for schema drift
+        run: >-
+          npx prisma migrate diff
+          --from-schema-datamodel prisma/schema.prisma
+          --to-schema-datasource prisma/schema.prisma
+          --exit-code
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # `pretest` typechecks again, which costs seconds and means the suite
+      # cannot be run any other way without it.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
