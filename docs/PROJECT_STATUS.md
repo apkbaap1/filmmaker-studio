@@ -4,7 +4,7 @@
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **1045 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **1072 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 All four gates are now one command — `npm run verify` — and GitHub Actions runs
@@ -86,6 +86,7 @@ Reconstructed from `git log --reverse`:
 | 12.6 | A second real image provider, and the seam audit it enabled |
 | 12.7 | Production hardening — CI, a wired-in typecheck, server-action tests |
 | 12.8 | Server-action coverage extended to generation and timeline |
+| 12.9 | Image-to-video, end to end in the UI |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -224,6 +225,25 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   trim, so three spaces was a valid name and produced a tab label that was
   blank, unclickable and indistinguishable from its neighbours. Both schemas
   now trim before the length check.
+- **Image-to-video end to end** (12.9) — the adapter and the pipeline always
+  supported animating a still; the UI did not make it reachable. Choosing a
+  source frame was a dropdown of captions and timestamps, unusable the moment a
+  shot had more than one variant, because the decision is which *picture* to
+  animate. It is now a thumbnail picker, and a completed still carries an
+  "Animate this frame" button that switches mode with that frame already
+  chosen — the gesture the flow was missing, since generating a still and
+  animating it are one thought.
+
+  The provider's `imageToVideo` capability is now read in the UI as well as
+  checked on the server, so a provider that cannot animate greys the mode out
+  instead of failing on submit.
+
+  The four server-side guards — a source is chosen, it belongs to *this shot*,
+  it is an image, the provider can animate one — were never tested. They are
+  now, along with the whole path: a still is queued through the real action,
+  driven through the real worker and the real stub provider, and the clip that
+  comes out is checked for being a video attached to the same shot with the
+  source frame still recorded.
 
 ---
 
@@ -437,7 +457,12 @@ Until a real generation completes, Google Veo is **implemented, not verified**.
 
 ## 14. Last thing implemented
 
-**Workstream 12.8 — server-action coverage extended** to the generation and
+**Workstream 12.9 — image-to-video end to end**: a thumbnail source picker, an
+"Animate this frame" button on a finished still, the provider capability
+surfaced before submit rather than after, and the first test that drives a
+still all the way to a clip through the real worker.
+
+Before that, **workstream 12.8 — server-action coverage extended** to the generation and
 timeline actions, and the name-trimming defect that found.
 
 Before that, **workstream 12.7 — production hardening**: `npm run verify`, a `pretest`
@@ -469,7 +494,8 @@ Ordered by risk retired per unit of effort.
 4. ~~Export asset bundling~~ — **done** (12.1).
 5. ~~Timeline transitions that affect duration~~ — **done** (12.2).
 6. ~~Audio tracks~~ — **done** (12.3).
-7. Image-to-video from a generated still, end to end in the UI.
+7. ~~Image-to-video from a generated still, end to end in the UI~~ — **done**
+   (12.9).
 
 **C. Make it safe to expose to other people**
 8. ~~Spend ceilings, not just attempt ceilings~~ — **done** (12.4).
@@ -492,7 +518,8 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Deployment** — the last thing between this and somebody else using it.
+**Deployment** — the last thing between this and somebody else using it, and
+now the only item left that is not optional.
 
 Every item on the agreed seven-point list is done, and so is the hardening that
 list ended with. What is left is not code this session can write alone:

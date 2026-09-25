@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, ErrorText, Field, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Card, ErrorText, Textarea } from "@/components/ui";
 import {
   cancelGenerationAction,
   generationStatesAction,
@@ -12,7 +12,20 @@ import {
 import { startShotVideoGenerationAction } from "@/lib/actions/video-generations";
 import { GenerationCard, MODE_LABEL, type GenerationItem, type GenerationMode } from "./generation-card";
 
-export type SourceFrame = { id: string; label: string };
+/**
+ * A still this shot already has, which image-to-video can animate.
+ *
+ * Carries enough to be *shown* rather than only named. A dropdown of
+ * "Generated frame · 3/4/2026, 5:06:08" is unusable the moment a shot has more
+ * than one variant: the whole decision is which picture to animate, and a
+ * timestamp is not a picture.
+ */
+export type SourceFrame = {
+  id: string;
+  label: string;
+  /** Distinguishes a render from something the filmmaker brought in. */
+  origin: "GENERATED" | "UPLOADED";
+};
 
 const MODES: GenerationMode[] = ["IMAGE", "VIDEO", "IMAGE_TO_VIDEO"];
 
@@ -60,6 +73,7 @@ export function ShotGeneration({
   videoGenAvailable,
   videoProviderKind,
   sourceFrames,
+  videoSupportsImageToVideo,
   generations,
 }: {
   projectId: string;
@@ -73,6 +87,12 @@ export function ShotGeneration({
   videoGenAvailable: boolean;
   videoProviderKind: "real" | "stub" | null;
   sourceFrames: SourceFrame[];
+  /**
+   * Whether the configured video provider can animate a still at all. Declared
+   * by the adapter, surfaced here, and checked again on the server — a provider
+   * that cannot do it should grey the mode out rather than fail on submit.
+   */
+  videoSupportsImageToVideo: boolean;
   generations: GenerationItem[];
 }) {
   const router = useRouter();
@@ -83,6 +103,18 @@ export function ShotGeneration({
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  /**
+   * Switches to image-to-video with a particular frame already chosen.
+   *
+   * The gesture the flow was missing: a filmmaker who has just seen a still
+   * they like wants to animate *that one*, not to go and find it again.
+   */
+  const animateFrame = useCallback((assetId: string) => {
+    setMode("IMAGE_TO_VIDEO");
+    setSourceAssetId(assetId);
+    setError(undefined);
+  }, []);
 
   const prompt = drafts[mode];
   const compiled = prompts[mode];
@@ -95,9 +127,17 @@ export function ShotGeneration({
   const providerLabel = isVideo ? videoProviderLabel : imageProviderLabel;
   const providerKind = isVideo ? videoProviderKind : imageProviderKind;
   const blocked =
-    mode === "IMAGE_TO_VIDEO" && sourceFrames.length === 0
-      ? "Generate or upload an image for this shot first — image-to-video needs a source frame."
-      : undefined;
+    mode !== "IMAGE_TO_VIDEO"
+      ? undefined
+      : !videoGenAvailable
+        ? undefined // the generic "no provider" message below already covers it
+        : !videoSupportsImageToVideo
+          ? `${videoProviderLabel} cannot animate a still. Image-to-video needs a provider that supports it — see README > Generation providers.`
+          : sourceFrames.length === 0
+            ? "Generate or upload an image for this shot first — image-to-video needs a source frame."
+            : !sourceAssetId
+              ? "Choose the frame to animate."
+              : undefined;
 
   // --- observing the worker -------------------------------------------------
   // Refreshing a view, not driving a job. If this component never renders again,
@@ -235,17 +275,42 @@ export function ShotGeneration({
         </p>
       )}
 
-      {mode === "IMAGE_TO_VIDEO" && sourceFrames.length > 0 && (
-        <div className="mb-3 max-w-md">
-          <Field label="Source frame to animate">
-            <Select value={sourceAssetId} onChange={(e) => setSourceAssetId(e.target.value)}>
-              {sourceFrames.map((frame) => (
-                <option key={frame.id} value={frame.id}>
-                  {frame.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
+      {mode === "IMAGE_TO_VIDEO" && videoSupportsImageToVideo && sourceFrames.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            Frame to animate
+          </p>
+          {/* Thumbnails rather than a dropdown. Choosing which still to animate
+              is a decision about a picture, and a list of timestamps made it
+              guesswork the moment a shot had more than one variant. */}
+          <div className="flex flex-wrap gap-2">
+            {sourceFrames.map((frame) => {
+              const chosen = frame.id === sourceAssetId;
+              return (
+                <button
+                  key={frame.id}
+                  type="button"
+                  onClick={() => setSourceAssetId(frame.id)}
+                  aria-pressed={chosen}
+                  title={frame.label}
+                  className={[
+                    "relative overflow-hidden rounded border",
+                    chosen ? "border-accent ring-2 ring-accent" : "border-border hover:border-muted",
+                  ].join(" ")}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/assets/${frame.id}/file`}
+                    alt={frame.label}
+                    className="h-20 w-32 object-cover"
+                  />
+                  <span className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5 text-[9px] text-white">
+                    {frame.origin === "GENERATED" ? "generated" : "uploaded"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -329,6 +394,12 @@ export function ShotGeneration({
                 generation={generation}
                 onRetry={retry}
                 onCancel={cancel}
+                // Offered only where it would work: a provider that cannot
+                // animate a still should not advertise the gesture and then
+                // refuse it.
+                onAnimate={
+                  videoGenAvailable && videoSupportsImageToVideo ? animateFrame : undefined
+                }
               />
             ))}
           </div>

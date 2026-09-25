@@ -171,7 +171,12 @@ export default async function ShotDesignPage({
           label:
             asset.caption ??
             `${asset.source === "GENERATED" ? "Generated" : "Uploaded"} frame · ${asset.createdAt.toLocaleString()}`,
+          origin: asset.source,
         }))}
+        // Read from the adapter, not assumed. The submission path checks it
+        // again server-side; this is so the UI never offers what will be
+        // refused.
+        videoSupportsImageToVideo={videoProvider?.capabilities.imageToVideo ?? false}
         generations={generations.map((g) => ({
           id: g.id,
           mode: g.mode,

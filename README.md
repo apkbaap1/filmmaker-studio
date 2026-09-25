@@ -237,6 +237,7 @@ locations, equipment, and budget tracking.
   12. ✅ Collaborators — invitations, roles, removal
   13. ✅ A second image provider, and the seam audit that justified it
   14. ✅ CI, a wired-in typecheck, and server actions tested directly
+  15. ✅ Image-to-video end to end — pick a frame, animate it, get a clip
 
 ## Getting started
 

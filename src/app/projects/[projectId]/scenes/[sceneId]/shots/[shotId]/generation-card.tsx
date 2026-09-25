@@ -92,11 +92,18 @@ export function GenerationCard({
   generation,
   onRetry,
   onCancel,
+  onAnimate,
 }: {
   projectId: string;
   generation: GenerationItem;
   onRetry: (generation: GenerationItem) => void;
   onCancel: (generation: GenerationItem) => void;
+  /**
+   * Offered only for a completed still, and only where the configured video
+   * provider can actually animate one. Absent means the gesture is unavailable,
+   * which is different from it failing when pressed.
+   */
+  onAnimate?: (assetId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -170,6 +177,19 @@ export function GenerationCard({
             />
             <span className="text-xs text-muted">Animated from this frame</span>
           </div>
+        )}
+
+        {/* The step that used to be missing. Generating a still and animating
+            it are one thought; before this they were two tabs and a dropdown of
+            timestamps, with no way to tell which frame was which. */}
+        {onAnimate && generation.status === "COMPLETED" && generation.assetId && mime.startsWith("image/") && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onAnimate(generation.assetId!)}
+          >
+            Animate this frame
+          </Button>
         )}
 
         {generation.error && <ErrorText message={generation.error} />}
