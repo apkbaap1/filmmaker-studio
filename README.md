@@ -234,6 +234,7 @@ locations, equipment, and budget tracking.
   9. ✅ Continuity tracking + warnings across shots
   10. ✅ Prompt Studio UI (inspector, versions, per-provider tabs) + export package
   11. ✅ Audio tracks (roles, levels, fades, J/L cuts, previz playback)
+  12. ✅ Collaborators — invitations, roles, removal
 
 ## Getting started
 
@@ -598,6 +599,48 @@ that would cross the line rather than noticing afterwards that it did.
 
 The spend report at `/projects/<id>/usage` shows how much of each ceiling is
 used, and flags both failure modes above.
+
+### Collaborators
+
+A project's owner can invite people from the **People** tab, as `EDITOR` (can
+change the production and start generations) or `VIEWER` (can see everything and
+change nothing). `requireProjectAccess` has always enforced those roles; what was
+missing until now was the door — a `ProjectMember` row could only be created by
+hand in the database.
+
+**This app cannot send email.** Inviting someone produces a link that the owner
+copies and sends themselves. Three things follow from that, and they are the
+design:
+
+- **The link is shown exactly once.** Only a SHA-256 of the token is stored, so
+  there is nothing to show it from a second time. Lose it, and you withdraw the
+  invitation and make another. A database dump is then a list of hashes rather
+  than a set of working keys to other people's productions.
+- **The link is necessary and not sufficient.** Accepting also requires being
+  signed in as the address the invitation names, because a link pasted into a
+  chat window can be forwarded, and a pure bearer token in that setting is a key
+  to a whole production sitting in somebody's message history.
+- **It expires and works once.** Seven days by default (`INVITATION_TTL_HOURS`),
+  single-use, and withdrawable. All three end states are recorded rather than
+  deleted, so an owner can see what was offered to whom.
+
+Only the **owner** may invite, change a role or remove somebody — not an editor.
+An editor who could invite other editors would be handing out write access to
+someone else's project, and with it the ability to spend against that project's
+ceilings. Anyone may remove themselves; the owner cannot, since nobody would be
+left to administer the project.
+
+`OWNER` is deliberately not offerable. Ownership is `Project.ownerId` — one
+field, one person — and it decides who can delete the project and whose spend it
+is. Handing it out as a membership row would create a second kind of owner with
+none of those powers and a confusingly similar name. Transferring ownership is a
+different operation and is not implemented.
+
+Removing someone takes away their access and leaves their work: scenes, shots,
+generations and assets belong to the production, not to whoever typed them, and a
+removal that deleted them would be a way to destroy a film by falling out with a
+collaborator. The spend ledger keeps their name against what they spent, because
+that is a record of what happened.
 
 ### Real versus stub
 

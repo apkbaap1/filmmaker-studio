@@ -8,19 +8,34 @@ import bcrypt from "bcryptjs";
 
 export type FormState = { error?: string } | undefined;
 
+/**
+ * Where to send someone after they sign in.
+ *
+ * Only a path within this application. A `callbackUrl` is a value from the
+ * query string, and one that accepted `https://elsewhere.example` would turn
+ * every sign-in link into an open redirect — the classic way a phishing page
+ * borrows a real domain's credibility. Anything that is not a single-slash
+ * relative path falls back to the dashboard.
+ */
+function safeCallback(value: FormDataEntryValue | null): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
+  return raw;
+}
+
 export async function signInAction(
   _prevState: FormState,
   formData: FormData
 ): Promise<FormState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
-  const callbackUrl = String(formData.get("callbackUrl") ?? "/dashboard");
+  const callbackUrl = safeCallback(formData.get("callbackUrl"));
 
   try {
     await signIn("credentials", {
       email,
       password,
-      redirectTo: callbackUrl || "/dashboard",
+      redirectTo: callbackUrl,
     });
   } catch (err) {
     if (err instanceof AuthError) {
@@ -40,6 +55,10 @@ export async function signUpAction(
     email: String(formData.get("email") ?? ""),
     password: String(formData.get("password") ?? ""),
   };
+  // Carried through so somebody who followed an invitation and had to make an
+  // account first lands back on the invitation rather than on a dashboard with
+  // no explanation of why they are there.
+  const callbackUrl = safeCallback(formData.get("callbackUrl"));
 
   const parsed = registerSchema.safeParse(raw);
   if (!parsed.success) {
@@ -60,7 +79,7 @@ export async function signUpAction(
     await signIn("credentials", {
       email: parsed.data.email,
       password: parsed.data.password,
-      redirectTo: "/dashboard",
+      redirectTo: callbackUrl,
     });
   } catch (err) {
     if (err instanceof AuthError) {

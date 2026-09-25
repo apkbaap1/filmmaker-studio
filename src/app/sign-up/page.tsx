@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { SignUpForm } from "./sign-up-form";
 
 export default function SignUpPage() {
@@ -11,7 +12,9 @@ export default function SignUpPage() {
           </Link>
           <p className="mt-2 text-sm text-muted">Create your production workspace</p>
         </div>
-        <SignUpForm />
+        <Suspense>
+          <SignUpForm />
+        </Suspense>
         <p className="mt-6 text-center text-sm text-muted">
           Already have an account?{" "}
           <Link href="/sign-in" className="text-accent hover:underline">

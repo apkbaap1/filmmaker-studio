@@ -177,10 +177,12 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ownedProjects   Project[]         @relation("ProjectOwner")
-  memberships     ProjectMember[]
-  generations     Generation[]      @relation("GenerationCreatedBy")
-  generationUsage GenerationUsage[]
+  ownedProjects       Project[]           @relation("ProjectOwner")
+  memberships         ProjectMember[]
+  generations         Generation[]        @relation("GenerationCreatedBy")
+  generationUsage     GenerationUsage[]
+  invitationsSent     ProjectInvitation[] @relation("InvitationsSent")
+  invitationsAccepted ProjectInvitation[] @relation("InvitationsAccepted")
 }
 
 model Project {
@@ -210,6 +212,7 @@ model Project {
   owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   members             ProjectMember[]
+  invitations         ProjectInvitation[]
   scenes              Scene[]
   scheduleDays        ScheduleDay[]
   castMembers         CastMember[]
@@ -263,6 +266,60 @@ model ProjectMember {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, userId])
+}
+
+/**
+ * An offer of access to a project, addressed to an email address.
+ * ## The token is not here
+ * `tokenHash` holds a SHA-256 of the token that was handed out; the token
+ * itself is never written down, for the same reason a password never is. A
+ * database dump is then a list of hashes rather than a set of working keys to
+ * other people's productions. It also means the link can be shown exactly once,
+ * at the moment it is created — there is nothing to show it from afterwards.
+ * ## Why the email is binding, not decorative
+ * This application cannot send mail, so the person who invites someone copies
+ * the link and sends it themselves — through a chat window, a forwarded message,
+ * whatever they have. A pure bearer token in that setting is a key to a whole
+ * production lying in someone's message history. So acceptance also requires the
+ * signed-in account's own email to match this one: the link alone is not enough.
+ * ## Three ways it stops working
+ * `expiresAt` in the past, `revokedAt` set, or `acceptedAt` set — an invitation
+ * is single-use. All three are recorded rather than deleted, so an owner can see
+ * what was offered to whom and what became of it.
+ */
+model ProjectInvitation {
+  id        String @id @default(cuid())
+  projectId String
+
+  /**
+   * Stored lower-cased, because email comparison here is case-insensitive.
+   */
+  email String
+  /**
+   * OWNER is deliberately not offerable — see src/lib/invitations.ts. Ownership
+   * is `Project.ownerId`, a single field, not a membership row.
+   */
+  role  ProjectRole
+
+  /**
+   * SHA-256 of the token. The token is never stored.
+   */
+  tokenHash String @unique
+
+  invitedById  String?
+  acceptedById String?
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedBy  User?   @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedBy User?   @relation("InvitationsAccepted", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([email])
 }
 
 model Scene {

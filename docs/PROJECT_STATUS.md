@@ -1,10 +1,10 @@
 # Filmmaker Studio — project status
 
-**As of commit `89f9f71`+ (Spend ceilings), branch `main`.**
+**As of commit `bf962b0`+ (Collaborator invitations), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **861 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **923 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 > Keep this file current. It exists because the original planning history was
@@ -78,6 +78,7 @@ Reconstructed from `git log --reverse`:
 | 12.2 | Timeline transitions that affect duration |
 | 12.3 | Audio tracks — sound on the ruler, and J/L cuts that do something |
 | 12.4 | Spend ceilings — a cap on money, not just on attempts |
+| 12.5 | Collaborator invitations and project permissions |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -160,6 +161,18 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   price is refused unless `GENERATION_SPEND_UNPRICED=allow`. Currencies are
   compared separately and never converted; spend in a currency with no ceiling
   is uncapped and the report says so. Surfaced on the usage page.
+- **Collaborator invitations** (12.5) — `ProjectInvitation`, a People tab, and
+  an accept page. Only a SHA-256 of the token is stored, so the link is shown
+  exactly once and a database dump holds no working keys. Because the app
+  cannot send mail, the owner passes the link on by hand — which is why
+  accepting also requires being signed in as the invited address: a forwarded
+  link is not enough on its own. Single-use via a conditional claim inside a
+  transaction, expiring (`INVITATION_TTL_HOURS`, default seven days), and
+  withdrawable; all three end states are kept rather than deleted. Invites,
+  role changes and removals are owner-only, since an editor who could invite
+  editors would be handing out spend against someone else's ceilings. `OWNER`
+  is not offerable. Removing someone leaves their work and the ledger's
+  attribution intact.
 
 ---
 
@@ -171,7 +184,7 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
 | **Google Veo 3.1 video** (11.5) | Full adapter: `predictLongRunning`, operation polling, result path, authenticated download, 500 MB cap, metadata validation, error classification. Contract documented with per-value provenance in `docs/veo-api-contract.md`. 62 tests. | **Never run against the live Google API** — see §13. Request payload, polling, download and every parameter value range remain unverified. |
 | **Spend accounting** | Ledger, rates module, project report UI. | Ships with **no prices** by design; nothing is priced until `GENERATION_RATES` is configured. No date filter, no pagination, no spend *ceiling* (limits count attempts, not money). |
 | **Aspect ratio / resolution** | Stored on `Project`, snapshotted onto `Generation`, passed to the adapter, validated. | No per-shot override. Free text, not a picker. |
-| **Collaborator roles** | Modelled and enforced in `requireProjectAccess`. | No invite flow — membership rows must be created directly. |
+| **Collaborator roles** | Invitations, role changes, removal and leaving, on top of the enforcement `requireProjectAccess` already did. | Ownership transfer; email delivery — the owner passes the link on by hand. |
 
 ---
 
@@ -187,7 +200,10 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
 - **Image-to-video from a generated still in the UI** — the adapter supports it;
   the pipeline supports it; the end-to-end UX is thin.
 - **Any second AI provider** — one image provider, one video provider.
-- **Email/invites, password reset, multi-tenant billing, deployment config.**
+- **Email delivery** — no mailer is configured, so an invitation link is passed
+  on by hand. Password reset is blocked on the same thing.
+- **Ownership transfer** — `Project.ownerId` can only be changed in the database.
+- **Multi-tenant billing and deployment config.**
 
 ---
 
@@ -247,6 +263,8 @@ src/lib/
     ceilings.ts             spend caps — opt-in, fail-closed, per currency
   media.ts                  the media authorization boundary
   generation-limits.ts      hard attempt ceilings (always on, finite defaults)
+  invitations.ts            invitation rules — shared with client components
+  invitation-tokens.ts      token generation and hashing — server-only
   timeline.ts               picture timing: trims, dissolves, the ruler
   audio.ts                  sound timing: J/L cuts, tracks, levels, fades
   blocking.ts, continuity.ts, diff.ts
@@ -256,7 +274,7 @@ src/lib/
 
 scripts/                    worker + 9 verification/migration scripts
 docs/                       veo-api-contract.md, PROJECT_STATUS.md
-prisma/                     schema + 18 migrations
+prisma/                     schema + 19 migrations
 ```
 
 ---
@@ -392,7 +410,7 @@ Ordered by risk retired per unit of effort.
 
 **C. Make it safe to expose to other people**
 8. ~~Spend ceilings, not just attempt ceilings~~ — **done** (12.4).
-9. Collaborator invite flow and project permissions.
+9. ~~Collaborator invite flow and project permissions~~ — **done** (12.5).
 10. Deployment: managed Postgres, S3 bucket, worker process, `AUTH_URL`,
     password reset.
 
@@ -405,23 +423,25 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Collaborator invitations and project permissions** (priority #5 on the agreed
-list).
+**A second AI provider of each kind** (priority #6 on the agreed list).
 
-Spend ceilings closed the money half of "safe to put in front of other people".
-This is the other half, and it is the last thing standing between the current
-state and a second person being able to use a project at all.
+Everything on the agreed list that was about making the app safe for other
+people is now done. What remains splits into proving the architecture and
+hardening it, and the provider seam is the more interesting of the two.
 
-The model is already there: `ProjectMember` exists, roles are enforced by
-`requireProjectAccess`, and 11.7 attributes spend to the person who started each
-generation. What is missing is the way in — a membership row can only be created
-directly in the database today, so there is no invite, no acceptance, and no way
-for an owner to change or revoke a role from the application.
+The claim the whole prompt-compiler design rests on is that one
+provider-independent specification renders to many providers. That claim has
+never actually been tested: there is one real image provider and one real video
+provider, so every seam between the compiler and an adapter has only ever had to
+satisfy a single implementation. A second of each is how the abstraction gets
+audited rather than admired — if `Specified<T>` and the capability checks are
+right, adding one should touch no code outside its own adapter file and the
+registry.
 
-The honest complication is that an invitation is the first thing here that
-addresses someone who does not yet have an account, which means a token with a
-lifetime and a single use, and a decision about what an invited person can see
-before they accept.
+The honest complication is the same one that has been deferred all along: a
+second provider cannot be verified live any more than the first can without
+credentials in a reachable runtime. What it *can* prove, without a credential,
+is whether the seam holds.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

@@ -1,15 +1,19 @@
 "use client";
 
 import { useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 import { signUpAction } from "@/lib/actions/auth";
 import { Button, Card, ErrorText, Field, Input } from "@/components/ui";
 
 export function SignUpForm() {
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
   const [state, formAction, pending] = useActionState(signUpAction, undefined);
 
   return (
     <Card className="p-6">
       <form action={formAction} className="space-y-4">
+        <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <Field label="Name">
           <Input type="text" name="name" required autoComplete="name" placeholder="Jordan Rivera" />
         </Field>

@@ -25,6 +25,7 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
     { href: `${base}/equipment`, label: "Equipment" },
     { href: `${base}/budget`, label: "Budget" },
     { href: `${base}/usage`, label: "Usage" },
+    { href: `${base}/people`, label: "People" },
     { href: `${base}/settings`, label: "Settings" },
   ];
 
