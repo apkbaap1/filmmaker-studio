@@ -48,9 +48,21 @@ export interface ImageProviderCapabilities {
    * logs both surface this, so the two can never be confused.
    */
   kind: "real" | "stub";
-  /** Provider-native size tokens, e.g. "1024x1024". */
+  /**
+   * Provider-native size tokens, e.g. "1024x1024". Empty when the provider has
+   * no size parameter at all.
+   */
   sizes: string[];
-  defaultSize: string;
+  /**
+   * Which of `sizes` is sent when the filmmaker states none.
+   *
+   * Optional, and absent means *this provider does not accept a size* — not
+   * that it has a default this adapter failed to name. The field was required
+   * until a second provider arrived whose API has no dimension parameter for
+   * image output, which is exactly the assumption a single implementation could
+   * never have exposed.
+   */
+  defaultSize?: string;
   /** What the provider returns. Anything else is refused. */
   outputMimeTypes: string[];
   maxPromptCharacters: number;

@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 
 import { listProviders } from "../prompt/index.ts";
 import { listVideoProviders } from "../ai/video-providers/index.ts";
+import { listImageProviders } from "../ai/image-providers/index.ts";
 
 /**
  * Phase 10 — the standing rule that no provider is claimed without an adapter.
@@ -30,9 +31,31 @@ const UNIMPLEMENTED = ["seedance", "higgsfield", "runway", "luma", "pika", "sora
  * requires the adapter file to exist *and* to be registered in the provider
  * registry, so a name can only be moved once the code genuinely backs it.
  */
-const IMPLEMENTED: Array<{ name: string; file: string; providerId: string }> = [
-  { name: "veo", file: "lib/ai/video-providers/google-veo.ts", providerId: "google-veo" },
+const IMPLEMENTED: Array<{
+  name: string;
+  file: string;
+  providerId: string;
+  kind: "image" | "video";
+}> = [
+  {
+    name: "veo",
+    file: "lib/ai/video-providers/google-veo.ts",
+    providerId: "google-veo",
+    kind: "video",
+  },
+  {
+    name: "gemini",
+    file: "lib/ai/image-providers/gemini-image.ts",
+    providerId: "google-gemini-image",
+    kind: "image",
+  },
 ];
+
+/** Which registry an entry has to appear in — video is no longer the only one. */
+const REGISTRIES = {
+  image: () => listImageProviders().map((p) => p.id),
+  video: () => listVideoProviders().map((p) => p.id),
+};
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -71,12 +94,12 @@ describe("no provider is claimed without an adapter", () => {
   });
 
   it("backs every implemented platform with a registered adapter", () => {
-    for (const { name, file, providerId } of IMPLEMENTED) {
+    for (const { name, file, providerId, kind } of IMPLEMENTED) {
       assert.ok(
         statSync(path.join(SRC, file)).isFile(),
         `${name} is listed as implemented but ${file} does not exist`
       );
-      const registered = listVideoProviders().map((p) => p.id);
+      const registered = REGISTRIES[kind]();
       assert.ok(
         registered.includes(providerId),
         `${name} has an adapter file but "${providerId}" is not registered: ${registered.join(", ")}`

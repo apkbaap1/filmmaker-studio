@@ -235,6 +235,7 @@ locations, equipment, and budget tracking.
   10. ✅ Prompt Studio UI (inspector, versions, per-provider tabs) + export package
   11. ✅ Audio tracks (roles, levels, fades, J/L cuts, previz playback)
   12. ✅ Collaborators — invitations, roles, removal
+  13. ✅ A second image provider, and the seam audit that justified it
 
 ## Getting started
 
@@ -372,7 +373,7 @@ deployable:
 | Area | State today | Needed for production |
 |---|---|---|
 | **Asset storage** | S3-compatible object storage, local disk in development | Configure `S3_*` and run `npm run storage:migrate` |
-| **Image provider** | OpenAI gpt-image-1, implemented and tested; not yet run against the live API | A credential and network egress — see "Image generation" |
+| **Image provider** | Two: OpenAI gpt-image-1 and Google Gemini image output. Both implemented and tested; **neither has been run against the live API** | A credential and network egress — see "Image generation" |
 | **Video providers** | Google Veo 3.1 adapter, implemented and unit-tested; **never run against the live API** — see `docs/veo-api-contract.md` | A credential in a runtime that can reach Google, then one real generation |
 | **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
 | **Billing / quotas** | Attempt ceilings, opt-in spend ceilings, and a per-attempt ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`, which spend ceilings need to work |

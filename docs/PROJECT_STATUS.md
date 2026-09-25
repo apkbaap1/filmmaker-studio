@@ -1,10 +1,10 @@
 # Filmmaker Studio — project status
 
-**As of commit `bf962b0`+ (Collaborator invitations), branch `main`.**
+**As of commit `7cfd25a`+ (Second image provider), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **923 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **981 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 > Keep this file current. It exists because the original planning history was
@@ -79,6 +79,7 @@ Reconstructed from `git log --reverse`:
 | 12.3 | Audio tracks — sound on the ruler, and J/L cuts that do something |
 | 12.4 | Spend ceilings — a cap on money, not just on attempts |
 | 12.5 | Collaborator invitations and project permissions |
+| 12.6 | A second real image provider, and the seam audit it enabled |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -173,6 +174,23 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   editors would be handing out spend against someone else's ceilings. `OWNER`
   is not offerable. Removing someone leaves their work and the ledger's
   attribution intact.
+- **A second image provider** (12.6) — Google Gemini image output, alongside
+  OpenAI. Its contract was read out of Google's own `@google/genai` SDK
+  (installed, inspected, removed — the adapter has no dependency), with
+  provenance in `docs/gemini-image-api-contract.md`. Imagen was tried first and
+  abandoned: `generateImages` is Vertex-only in that SDK, and Vertex needs
+  service-account OAuth rather than the API key this application holds. The
+  model id has no default, because which models return images is a fact about
+  Google's catalogue rather than about its SDK.
+
+  The point of the workstream was auditing the claim that one specification
+  renders to many providers. It held: the compiler, the IR, the schema and the
+  submission path were untouched. One thing did not fit —
+  `ImageProviderCapabilities.defaultSize` was required, on the assumption that
+  every provider picks from a set of size tokens, and Gemini's image output has
+  no dimension parameter at all. It is now optional, absent meaning "does not
+  accept a size". One field, no consumer changes. `provider-seam.test.ts` keeps
+  every property the audit established.
 
 ---
 
@@ -265,6 +283,8 @@ src/lib/
   generation-limits.ts      hard attempt ceilings (always on, finite defaults)
   invitations.ts            invitation rules — shared with client components
   invitation-tokens.ts      token generation and hashing — server-only
+  ai/image-providers/       openai, gemini-image, local-stub, registry
+  ai/video-providers/       google-veo, local-stub, registry
   timeline.ts               picture timing: trims, dissolves, the ruler
   audio.ts                  sound timing: J/L cuts, tracks, levels, fades
   blocking.ts, continuity.ts, diff.ts
@@ -384,11 +404,13 @@ Until a real generation completes, Google Veo is **implemented, not verified**.
 
 ## 14. Last thing implemented
 
-**Workstream 11.7 — the spend UI**, finished across `35e118a` and `5bdbe84`:
-the `/projects/{id}/usage` route, its four stat tiles, provider/model
-breakdown, per-person attribution, recent-attempts table, and loading, error
-and empty states. Plus the headline usage total (per unit, never summed across
-units) and a page-level empty state.
+**Workstream 12.6 — a second real image provider**: the Google Gemini image
+adapter, its contract document, the `defaultSize` change that adding it
+exposed, and `provider-seam.test.ts`, which turns the audit's findings into a
+standing guard rather than a one-off report.
+
+Two real image providers now exist, which is the condition that gives the seam
+tests their meaning: a single implementation can satisfy any interface.
 
 ---
 
@@ -415,7 +437,8 @@ Ordered by risk retired per unit of effort.
     password reset.
 
 **D. Depth and hardening**
-11. A second provider of each kind, to prove the adapter seams hold.
+11. A second **video** provider, to finish proving the adapter seams hold. The
+    image half is done (12.6).
 12. Wire `tsc --noEmit` into the validation pipeline; add CI.
 13. Server-action test coverage.
 
@@ -423,25 +446,26 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**A second AI provider of each kind** (priority #6 on the agreed list).
+**Production hardening** (priority #7, the last item on the agreed list).
 
-Everything on the agreed list that was about making the app safe for other
-people is now done. What remains splits into proving the architecture and
-hardening it, and the provider seam is the more interesting of the two.
+The image seam is audited and held. A second *video* provider would audit the
+other half, but it is the weaker of the two remaining options: the video
+interface is the more constrained one (submit-then-poll, an explicit
+idempotency contract), and no non-Google video vendor's API can be established
+from here — outbound network to provider hosts is refused, and npm is the only
+reachable source of an authoritative contract.
 
-The claim the whole prompt-compiler design rests on is that one
-provider-independent specification renders to many providers. That claim has
-never actually been tested: there is one real image provider and one real video
-provider, so every seam between the compiler and an adapter has only ever had to
-satisfy a single implementation. A second of each is how the abstraction gets
-audited rather than admired — if `Specified<T>` and the capability checks are
-right, adding one should touch no code outside its own adapter file and the
-registry.
+Hardening does not have that problem, and it is what actually stands between
+the current state and a deployment:
 
-The honest complication is the same one that has been deferred all along: a
-second provider cannot be verified live any more than the first can without
-credentials in a reachable runtime. What it *can* prove, without a credential,
-is whether the seam holds.
+  - `tsc --noEmit` is run by hand every workstream. Nothing stops a change
+    landing untypechecked, and it has caught a real defect in four of the last
+    five workstreams. It belongs in `npm test` and in CI.
+  - The server actions are the least-tested layer, because they reach for a
+    NextAuth session. Two workstreams have now worked *around* that with static
+    source assertions and real-database queries. A session harness would let
+    them be tested directly.
+  - There is no CI at all: every gate is something a person remembers to run.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

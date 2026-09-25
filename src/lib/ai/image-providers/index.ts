@@ -1,5 +1,6 @@
 import type { ImageGenerationProvider } from "./types.ts";
 import { openAiImageProvider } from "./openai.ts";
+import { geminiImageProvider } from "./gemini-image.ts";
 import { localStubImageProvider } from "./local-stub.ts";
 
 /**
@@ -13,6 +14,7 @@ import { localStubImageProvider } from "./local-stub.ts";
  */
 const providers: Record<string, ImageGenerationProvider> = {
   [openAiImageProvider.id]: openAiImageProvider,
+  [geminiImageProvider.id]: geminiImageProvider,
   [localStubImageProvider.id]: localStubImageProvider,
 };
 
@@ -39,6 +41,7 @@ export function listImageProviders(): ImageGenerationProvider[] {
 }
 
 export { localStubImageProvider } from "./local-stub.ts";
+export { geminiImageProvider } from "./gemini-image.ts";
 export type { GeneratedImage, ImageGenerationProvider, ImageGenerationRequest } from "./types.ts";
 
 /**
