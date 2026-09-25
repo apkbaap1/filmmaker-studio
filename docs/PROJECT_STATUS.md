@@ -4,7 +4,7 @@
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **1072 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **1093 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 All four gates are now one command — `npm run verify` — and GitHub Actions runs
@@ -87,6 +87,7 @@ Reconstructed from `git log --reverse`:
 | 12.7 | Production hardening — CI, a wired-in typecheck, server-action tests |
 | 12.8 | Server-action coverage extended to generation and timeline |
 | 12.9 | Image-to-video, end to end in the UI |
+| 12.10 | Deployment — containers, compose, health, and the guide |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -244,6 +245,29 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   driven through the real worker and the real stub provider, and the clip that
   comes out is checked for being a video attached to the same shot with the
   source frame still recorded.
+- **Deployment** (12.10) — a two-target `Dockerfile` (web and worker from one
+  build, so they cannot drift), `docker-compose.yml` for a whole self-hosted
+  stack, `output: "standalone"` so the runtime image carries a server rather
+  than `node_modules`, a public `/api/health` that actually touches the
+  database, and `docs/DEPLOYMENT.md`.
+
+  Provider credentials go to the worker and to nothing else: the web container
+  serves nothing that calls a provider, so a compromise there reaches no
+  billable account. `deployment.test.ts` guards the invariants that would fail
+  silently — a secret baked into a layer, a runtime image running as root,
+  health behind auth, the worker quietly dropped from the stack.
+
+  Verified as far as this environment allows: the standalone server was started
+  for real and answered `/api/health` with a live database round-trip while
+  still redirecting a protected page. **The images were not built** — there is
+  no Docker daemon here, only the client.
+
+  Two bugs surfaced. `/invitations/*` was not public, so the middleware
+  redirected a signed-out invitee to sign-in and the landing page's signed-out
+  branch was unreachable; worse, the sign-in page's "Create one" link dropped
+  the callback, so an invitee with no account lost the invitation on the way to
+  sign-up. Both fixed, and the callback rule is now one shared module rather
+  than a copy in each place.
 
 ---
 
@@ -348,6 +372,9 @@ src/lib/
 scripts/                    worker + 9 verification/migration scripts
 docs/                       veo-api-contract.md, PROJECT_STATUS.md
 prisma/                     schema + 19 migrations
+Dockerfile                  two targets: web (standalone) and worker
+docker-compose.yml          postgres + migrate + web + worker
+docs/DEPLOYMENT.md          what to set, what is missing, a checklist
 ```
 
 ---
@@ -457,7 +484,11 @@ Until a real generation completes, Google Veo is **implemented, not verified**.
 
 ## 14. Last thing implemented
 
-**Workstream 12.9 — image-to-video end to end**: a thumbnail source picker, an
+**Workstream 12.10 — deployment**: a two-target Dockerfile, a compose stack, a
+health endpoint, `docs/DEPLOYMENT.md`, and the two invitation-flow bugs that
+looking at the middleware turned up.
+
+Before that, **workstream 12.9 — image-to-video end to end**: a thumbnail source picker, an
 "Animate this frame" button on a finished still, the provider capability
 surfaced before submit rather than after, and the first test that drives a
 still all the way to a clip through the real worker.
@@ -500,8 +531,9 @@ Ordered by risk retired per unit of effort.
 **C. Make it safe to expose to other people**
 8. ~~Spend ceilings, not just attempt ceilings~~ — **done** (12.4).
 9. ~~Collaborator invite flow and project permissions~~ — **done** (12.5).
-10. Deployment: managed Postgres, S3 bucket, worker process, `AUTH_URL`,
-    password reset.
+10. Deployment — **the codebase half is done** (12.10): containers, compose,
+    health, and a guide. What remains is not code: a managed Postgres, a bucket,
+    a host, real secrets, and a mailer (which password reset is blocked on).
 
 **D. Depth and hardening**
 11. A second **video** provider, to finish proving the adapter seams hold. The
@@ -518,8 +550,24 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Deployment** — the last thing between this and somebody else using it, and
-now the only item left that is not optional.
+**Nothing, in this repository.**
+
+Every item on the agreed list is done, and so is the codebase half of
+deployment. What is left needs an account rather than a commit:
+
+  - A host, a managed Postgres with backups, and a private S3 bucket.
+  - Real secrets — `AUTH_SECRET`, `AUTH_URL`, and provider credentials, which
+    also close the two deferred live verifications.
+  - A mailer. Password reset is blocked on it, and it is the most likely thing
+    to bite a real user: somebody who forgets their password today cannot
+    recover the account without an operator editing the database.
+
+`docs/DEPLOYMENT.md` has the pre-flight checklist and is honest about what is
+missing.
+
+Optional code, if you want more: a second video provider (weak from here — no
+non-Google vendor's contract can be established without network access), and
+the thinner CRUD action files.
 
 Every item on the agreed seven-point list is done, and so is the hardening that
 list ended with. What is left is not code this session can write alone:

@@ -4,24 +4,10 @@ import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { registerSchema } from "@/lib/validation";
+import { safeCallbackUrl } from "@/lib/callback-url";
 import bcrypt from "bcryptjs";
 
 export type FormState = { error?: string } | undefined;
-
-/**
- * Where to send someone after they sign in.
- *
- * Only a path within this application. A `callbackUrl` is a value from the
- * query string, and one that accepted `https://elsewhere.example` would turn
- * every sign-in link into an open redirect — the classic way a phishing page
- * borrows a real domain's credibility. Anything that is not a single-slash
- * relative path falls back to the dashboard.
- */
-function safeCallback(value: FormDataEntryValue | null): string {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
-  return raw;
-}
 
 export async function signInAction(
   _prevState: FormState,
@@ -29,7 +15,7 @@ export async function signInAction(
 ): Promise<FormState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
-  const callbackUrl = safeCallback(formData.get("callbackUrl"));
+  const callbackUrl = safeCallbackUrl(formData.get("callbackUrl"));
 
   try {
     await signIn("credentials", {
@@ -58,7 +44,7 @@ export async function signUpAction(
   // Carried through so somebody who followed an invitation and had to make an
   // account first lands back on the invitation rather than on a dashboard with
   // no explanation of why they are there.
-  const callbackUrl = safeCallback(formData.get("callbackUrl"));
+  const callbackUrl = safeCallbackUrl(formData.get("callbackUrl"));
 
   const parsed = registerSchema.safeParse(raw);
   if (!parsed.success) {

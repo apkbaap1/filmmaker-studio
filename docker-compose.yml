@@ -1,20 +1,122 @@
+# A complete Filmmaker Studio stack, self-hosted.
+#
+#   cp .env.example .env     # then set AUTH_SECRET at minimum
+#   docker compose up --build
+#
+# Three services, because the app genuinely is three things: a database, a web
+# server, and a worker that does the slow, billable work. The worker is not
+# optional — without it a generation is queued and stays queued forever, which
+# looks like the app being broken and is the app waiting.
+#
+# This file is for one machine. It is a real deployment and it is not a
+# highly-available one: a single Postgres with a single volume, and no backups
+# configured. See docs/DEPLOYMENT.md before pointing a domain at it.
+
 services:
-  db:
+  postgres:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: filmmaker_studio
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-filmmaker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-filmmaker_studio}
     volumes:
-      - filmmaker_studio_db:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # The web and worker wait on this. Starting them against a database that
+      # is still initialising produces a crash loop that looks like a bug.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-filmmaker} -d ${POSTGRES_DB:-filmmaker_studio}"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+    # Not published by default. The database has no business being reachable
+    # from outside this network; uncomment only to inspect it from the host.
+    # ports:
+    #   - "5432:5432"
+
+  migrate:
+    build:
+      context: .
+      target: worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://filmmaker:${POSTGRES_PASSWORD}@postgres:5432/filmmaker_studio}
+    # `deploy`, not `dev`: it applies the migrations that exist and fails if the
+    # schema has drifted, rather than inventing one. A deployment is the wrong
+    # moment to discover a migration was never written.
+    command: ["npx", "prisma", "migrate", "deploy"]
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://filmmaker:${POSTGRES_PASSWORD}@postgres:5432/filmmaker_studio}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env — see docs/DEPLOYMENT.md}
+      # Behind a proxy that terminates TLS, AUTH_URL is what stops NextAuth
+      # building callback URLs on the wrong scheme or host.
+      AUTH_URL: ${AUTH_URL:-}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      # Storage. Unset means local disk in the volume below, which is fine for
+      # one machine and wrong for more than one — see docs/DEPLOYMENT.md.
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      MEDIA_URL_SECRET: ${MEDIA_URL_SECRET:-}
+    volumes:
+      - media:/app/storage
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://filmmaker:${POSTGRES_PASSWORD}@postgres:5432/filmmaker_studio}
+      # The only process that needs provider credentials. The web container is
+      # deliberately not given them: nothing it serves calls a provider, so a
+      # compromise there reaches no billable account.
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
+      VIDEO_PROVIDER: ${VIDEO_PROVIDER:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_IMAGE_MODEL: ${GOOGLE_IMAGE_MODEL:-}
+      GOOGLE_VEO_MODEL: ${GOOGLE_VEO_MODEL:-}
+      # The ceilings travel with the process that spends. A worker without them
+      # is an unbounded bill.
+      GENERATION_LIMIT_PER_USER: ${GENERATION_LIMIT_PER_USER:-}
+      GENERATION_LIMIT_PER_PROJECT: ${GENERATION_LIMIT_PER_PROJECT:-}
+      GENERATION_RATES: ${GENERATION_RATES:-}
+      GENERATION_SPEND_LIMIT_PER_PROJECT: ${GENERATION_SPEND_LIMIT_PER_PROJECT:-}
+      GENERATION_SPEND_LIMIT_PER_USER: ${GENERATION_SPEND_LIMIT_PER_USER:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+    volumes:
+      # Shared with the web container, so a generated file the worker writes is
+      # a file the web server can serve. With S3 configured this is unused.
+      - media:/app/storage
 
 volumes:
-  filmmaker_studio_db:
+  postgres-data:
+  media:

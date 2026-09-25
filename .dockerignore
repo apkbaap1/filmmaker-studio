@@ -1,0 +1,21 @@
+# Everything the build does not need, and everything that must never be in a
+# layer. .env is the one that matters: an image with a credential baked in is a
+# credential published to every registry it is pushed to.
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+.git
+.github
+
+*.test.ts
+*.test.tsx
+
+storage
+artifacts
+coverage
+
+npm-debug.log*
+.DS_Store
