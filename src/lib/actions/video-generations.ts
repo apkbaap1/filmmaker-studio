@@ -7,6 +7,7 @@ import { requireProjectAccess } from "@/lib/access";
 import { compileShotPrompt } from "@/lib/shot-prompt";
 import { configuredVideoProviderId, getVideoProvider } from "@/lib/ai/video-providers";
 import { checkGenerationAllowed } from "@/lib/generation-limits";
+import { checkSpendAllowed } from "@/lib/billing/ceilings";
 import { DEFAULT_PROVIDER_ID } from "@/lib/prompt";
 import { generationPromptSchema } from "@/lib/validation";
 
@@ -113,6 +114,22 @@ export async function startShotVideoGenerationAction(
     where: { id: shotId, sceneId },
     select: { durationSeconds: true },
   });
+
+  // The spend ceiling, which needs the clip length the attempt gate does not:
+  // video is billed by the second, so what this costs depends on how long the
+  // shot says it runs. Everything between the attempt gate above and here is
+  // local work — a prompt compile and two reads — so nothing billable has
+  // happened yet.
+  const affordable = await checkSpendAllowed({
+    projectId,
+    userId: session.user.id,
+    providerId,
+    model: getVideoProvider(providerId).model,
+    mode,
+    providerKind: getVideoProvider(providerId).capabilities.kind,
+    durationSeconds: shot?.durationSeconds ?? null,
+  });
+  if (!affordable.ok) return { error: affordable.reason };
 
   // The film's format, read once and frozen onto the row below. Read here
   // rather than in the worker so that changing the project's format later

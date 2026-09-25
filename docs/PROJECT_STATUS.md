@@ -1,10 +1,10 @@
 # Filmmaker Studio — project status
 
-**As of commit `67d038f`+ (Audio tracks), branch `main`.**
+**As of commit `89f9f71`+ (Spend ceilings), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **824 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **861 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 > Keep this file current. It exists because the original planning history was
@@ -77,6 +77,7 @@ Reconstructed from `git log --reverse`:
 | 12.1 | Export asset bundling — a ZIP carrying the media, not pointers |
 | 12.2 | Timeline transitions that affect duration |
 | 12.3 | Audio tracks — sound on the ruler, and J/L cuts that do something |
+| 12.4 | Spend ceilings — a cap on money, not just on attempts |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -149,6 +150,16 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   through its own elements, separately positioned from the picture — which is
   what makes a J-cut audible rather than merely recorded. An unmeasured file
   has an unknown length and says so instead of being given a plausible one.
+- **Spend ceilings** (12.4) — `GENERATION_SPEND_LIMIT_PER_PROJECT` and
+  `..._PER_USER`, checked before a generation is queued, adding the pending
+  call's estimated cost so the crossing call is the one refused. Opt-in with no
+  default, because money is only measurable from configured rates — the
+  inversion of the attempt limits, which all have finite defaults. Both ways an
+  opt-in guard could fail open are closed loudly: a ceiling that is set but
+  unreadable stops paid generation naming the variable, and a call no rate can
+  price is refused unless `GENERATION_SPEND_UNPRICED=allow`. Currencies are
+  compared separately and never converted; spend in a currency with no ceiling
+  is uncapped and the report says so. Surfaced on the usage page.
 
 ---
 
@@ -175,7 +186,6 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   `HTMLMediaElement.volume` caps at 1, so previewing a boost needs Web Audio.
 - **Image-to-video from a generated still in the UI** — the adapter supports it;
   the pipeline supports it; the end-to-end UX is thin.
-- **Spend ceilings** (as opposed to attempt ceilings).
 - **Any second AI provider** — one image provider, one video provider.
 - **Email/invites, password reset, multi-tenant billing, deployment config.**
 
@@ -234,8 +244,9 @@ src/lib/
   billing/
     rates.ts                operator rate table — ships with NO prices
     usage.ts                ledger writes + spend/breakdown/attribution reads
+    ceilings.ts             spend caps — opt-in, fail-closed, per currency
   media.ts                  the media authorization boundary
-  generation-limits.ts      hard attempt ceilings
+  generation-limits.ts      hard attempt ceilings (always on, finite defaults)
   timeline.ts               picture timing: trims, dissolves, the ruler
   audio.ts                  sound timing: J/L cuts, tracks, levels, fades
   blocking.ts, continuity.ts, diff.ts
@@ -380,7 +391,7 @@ Ordered by risk retired per unit of effort.
 7. Image-to-video from a generated still, end to end in the UI.
 
 **C. Make it safe to expose to other people**
-8. Spend ceilings, not just attempt ceilings.
+8. ~~Spend ceilings, not just attempt ceilings~~ — **done** (12.4).
 9. Collaborator invite flow and project permissions.
 10. Deployment: managed Postgres, S3 bucket, worker process, `AUTH_URL`,
     password reset.
@@ -394,20 +405,23 @@ Ordered by risk retired per unit of effort.
 
 ## The single next task
 
-**Spend ceilings, not just attempt ceilings** (priority #4 on the agreed list).
+**Collaborator invitations and project permissions** (priority #5 on the agreed
+list).
 
-Audio was the last of the three feature items in the agreed order that could be
-built without touching provider credentials or the authorization model. What is
-left splits cleanly: spend ceilings and the collaborator invite flow are both
-about making the app safe to put in front of other people, and the ceiling is
-the smaller of the two.
+Spend ceilings closed the money half of "safe to put in front of other people".
+This is the other half, and it is the last thing standing between the current
+state and a second person being able to use a project at all.
 
-The ledger from 11.7 already records per-attempt cost. A ceiling is a check
-against that ledger before a generation is queued, in the same place the
-existing attempt limits are enforced — so it reuses the accounting rather than
-starting a second one. The honest complication is that an unpriced provider
-produces a null cost, and a ceiling that treats null as zero would let unpriced
-generations run forever; that has to be a stated policy, not an accident.
+The model is already there: `ProjectMember` exists, roles are enforced by
+`requireProjectAccess`, and 11.7 attributes spend to the person who started each
+generation. What is missing is the way in — a membership row can only be created
+directly in the database today, so there is no invite, no acceptance, and no way
+for an owner to change or revoke a role from the application.
+
+The honest complication is that an invitation is the first thing here that
+addresses someone who does not yet have an account, which means a token with a
+lifetime and a single use, and a decision about what an invited person can see
+before they accept.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

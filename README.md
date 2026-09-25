@@ -374,7 +374,7 @@ deployable:
 | **Image provider** | OpenAI gpt-image-1, implemented and tested; not yet run against the live API | A credential and network egress — see "Image generation" |
 | **Video providers** | Google Veo 3.1 adapter, implemented and unit-tested; **never run against the live API** — see `docs/veo-api-contract.md` | A credential in a runtime that can reach Google, then one real generation |
 | **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
-| **Billing / quotas** | Hard ceilings, plus a per-attempt spend ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`; a UI for the totals |
+| **Billing / quotas** | Attempt ceilings, opt-in spend ceilings, and a per-attempt ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`, which spend ceilings need to work |
 | **Export assets** | JSON, CSV, PDF, and a ZIP bundle carrying the media itself | ZIP64, for a bundle or single asset over 4 GiB |
 | **Timeline transitions** | All six edit points: dissolves overlap and shorten the ruler, fades run through black, cuts are instant, J- and L-cuts move the sound | — |
 | **Audio** | Audio assets, tracks with roles and levels, placements with trims and fades, J/L-cut offsets, playback in the previz player | Waveform display; a rendered mixdown |
@@ -559,8 +559,45 @@ and they ignore local stub generations, which cost nothing. Every limit has a
 finite default and there is no "unlimited" setting. A nonsensical value falls
 back to the default rather than disabling the limit.
 
-This is deliberately not billing and not quota accounting; Workstream 11.7 owns
-that. It is a blunt stop so nothing can run away before then.
+#### Spend ceilings
+
+A second gate caps **money** rather than attempts:
+
+| Ceiling | Default | Environment variable |
+|---|---|---|
+| per project, per window | none | `GENERATION_SPEND_LIMIT_PER_PROJECT` |
+| per user, per window, across all their projects | none | `GENERATION_SPEND_LIMIT_PER_USER` |
+| the rolling window | `GENERATION_LIMIT_WINDOW_HOURS` | `GENERATION_SPEND_WINDOW_HOURS` |
+| what to do with unpriceable calls | `block` | `GENERATION_SPEND_UNPRICED` |
+
+The format is `"25 USD"`, or `"25 USD, 20 EUR"` for more than one currency.
+
+Note the inversion: the attempt limits all have finite defaults, and these have
+none. An attempt is always countable — one call is one call, whatever it cost.
+Money is not: what a call costs is knowable only from `GENERATION_RATES`, and
+this codebase ships without prices. A default ceiling would be an amount in a
+currency nobody named, measured against prices nobody configured. So ceilings
+are opt-in, and the attempt limits remain the floor.
+
+Being opt-in is why the two ways this could fail open are both closed loudly:
+
+- **A ceiling that is set but unreadable stops all paid generation**, naming the
+  variable. `GENERATION_RATES` drops a malformed entry and carries on, because
+  the consequence is a visible unpriced row. A dropped *ceiling* is the
+  opposite — an invisible removal of a limit the operator asked for.
+- **A call no rate can price is refused** while a ceiling is configured. Counting
+  an unpriceable call as zero would let an unpriced provider spend without limit,
+  which is precisely the hole a ceiling exists to close.
+  `GENERATION_SPEND_UNPRICED=allow` opts out, in writing.
+
+Ceilings are compared per currency and never converted, for the same reason the
+ledger keeps currencies apart. Spend in a currency with no ceiling is uncapped,
+and the spend report says so rather than looking protected. The check adds the
+*estimated* cost of the pending call to the total, so it stops the generation
+that would cross the line rather than noticing afterwards that it did.
+
+The spend report at `/projects/<id>/usage` shows how much of each ceiling is
+used, and flags both failure modes above.
 
 ### Real versus stub
 
@@ -610,7 +647,7 @@ has never been executed before.
 | Egress | outbound HTTPS to `api.openai.com` must be permitted |
 | Port | `VERIFY_PORT` (default 3122) free, for the browser-refresh check |
 | Data | the "The Last Reel" project, Scene 4, Shot 12 present |
-| Limits | `GENERATION_LIMIT_*` must permit one more generation |
+| Limits | `GENERATION_LIMIT_*` and any `GENERATION_SPEND_*` ceiling must permit one more generation |
 | Build | `npm run build` first — the harness scans the bundle for the credential |
 
 The run costs one `gpt-image-1` image and takes under a minute.

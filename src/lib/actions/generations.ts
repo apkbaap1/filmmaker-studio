@@ -10,6 +10,7 @@ import type { GenerationFailureKind, GenerationStatus } from "@prisma/client";
 import { compileShotImagePrompt } from "@/lib/shot-prompt";
 import { configuredImageProviderId, getImageProvider } from "@/lib/ai/image-providers";
 import { checkGenerationAllowed } from "@/lib/generation-limits";
+import { checkSpendAllowed } from "@/lib/billing/ceilings";
 import { DEFAULT_PROVIDER_ID } from "@/lib/prompt";
 import { generationPromptSchema } from "@/lib/validation";
 
@@ -90,12 +91,27 @@ export async function startShotImageGenerationAction(
 
   // Cost protection, before anything that could be billed. Checked on the
   // server because a client-side limit protects nobody.
+  //
+  // Two gates, counting different things. The first caps *attempts* and always
+  // applies; the second caps *money* and only applies where the operator has
+  // configured a ceiling, because money cannot be measured without rates.
   const allowed = await checkGenerationAllowed({
     projectId,
     userId: session.user.id,
     providerKind: capabilities?.kind ?? "real",
   });
   if (!allowed.ok) return { error: allowed.reason };
+
+  const affordable = await checkSpendAllowed({
+    projectId,
+    userId: session.user.id,
+    providerId,
+    model: provider.model,
+    mode: "IMAGE",
+    providerKind: capabilities?.kind ?? "real",
+    images: 1,
+  });
+  if (!affordable.ok) return { error: affordable.reason };
 
   // What is being asked of the provider, decided here and frozen on the row.
   const requestedSize = capabilities?.defaultSize;

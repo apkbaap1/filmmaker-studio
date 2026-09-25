@@ -4,7 +4,9 @@ import { PrismaClient } from "@prisma/client";
 
 const { rateFor, costMicrosFor, configuredRates } = await import("./rates.ts");
 const { quantityFor, recordProviderAttempt, spendFor } = await import("./usage.ts");
-type AttemptFacts = Parameters<typeof quantityFor>[0];
+// Derived from the recorder rather than from `quantityFor`, whose parameter is
+// deliberately narrower: it also measures a call that has not happened yet.
+type AttemptFacts = Parameters<typeof recordProviderAttempt>[0];
 
 /**
  * Spend accounting.

@@ -7,7 +7,10 @@ import {
   spendFor,
   usageBreakdown,
 } from "@/lib/billing/usage";
+import { ceilingStatus, spendCeilings } from "@/lib/billing/ceilings";
 import {
+  CeilingMisconfigured,
+  CeilingUsage,
   NoUsageYet,
   RecentAttempts,
   SpendByPerson,
@@ -35,11 +38,18 @@ export default async function UsagePage({
   const { projectId } = await params;
   await requireProjectAccess(projectId);
 
-  const [spend, groups, people, attempts] = await Promise.all([
+  const ceilings = spendCeilings();
+  // The ceiling is measured over its own rolling window, not over all time, so
+  // it is a separate query from the lifetime figures below rather than a slice
+  // of them.
+  const since = new Date(Date.now() - ceilings.windowHours * 3_600_000);
+
+  const [spend, groups, people, attempts, windowSpend] = await Promise.all([
     spendFor({ projectId }),
     usageBreakdown({ projectId }),
     spendByPerson({ projectId }),
     recentAttempts({ projectId, limit: 50 }),
+    ceilings.perProject.size > 0 ? spendFor({ projectId, since }) : null,
   ]);
 
   const configured = pricingIsConfigured();
@@ -50,6 +60,20 @@ export default async function UsagePage({
         title="Usage & spend"
         subtitle="What every paid provider call consumed, and what it cost where a rate is configured."
       />
+
+      {/* Shown above everything, and even on a project with no spend yet: a
+          ceiling that is set but unreadable stops generation, and that is the
+          first thing someone looking at this page needs to know. */}
+      {ceilings.malformed.length > 0 && <CeilingMisconfigured variables={ceilings.malformed} />}
+
+      {windowSpend && (
+        <CeilingUsage
+          statuses={ceilingStatus(windowSpend, ceilings.perProject)}
+          windowHours={ceilings.windowHours}
+          unpricedCalls={windowSpend.unpricedCalls}
+          unpricedPolicy={ceilings.unpriced}
+        />
+      )}
 
       {spend.totalCalls === 0 ? (
         <NoUsageYet />

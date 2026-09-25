@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { formatMicros } from "@/lib/billing/rates";
+import type { CeilingStatus } from "@/lib/billing/ceilings";
 import type { AttemptRow, PersonSpend, Spend, UsageGroup } from "@/lib/billing/usage";
 
 /**
@@ -342,6 +343,85 @@ export function RecentAttempts({
           Back to overview
         </Link>
       </div>
+    </Card>
+  );
+}
+
+/**
+ * How much of the configured spend ceiling this project has used.
+ *
+ * Shown only when a ceiling exists, because a bar against a limit nobody set
+ * would invent a limit. The bar is clamped at full while the figure beside it
+ * is not: a breached ceiling reads as full *and* states what was actually
+ * spent, rather than letting the clamp hide the overspend.
+ */
+export function CeilingUsage({
+  statuses,
+  windowHours,
+  unpricedCalls,
+  unpricedPolicy,
+}: {
+  statuses: CeilingStatus[];
+  windowHours: number;
+  unpricedCalls: number;
+  unpricedPolicy: "block" | "allow";
+}) {
+  if (statuses.length === 0) return null;
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-foreground">Spend ceiling</h2>
+        <p className="text-xs text-muted">rolling {windowHours}h</p>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {statuses.map((status) => (
+          <div key={status.currency}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+              <span className="text-foreground">
+                {formatMicros(status.spentMicros, status.currency)}
+                <span className="text-muted">
+                  {" "}
+                  of {formatMicros(status.ceilingMicros, status.currency)}
+                </span>
+              </span>
+              {status.over && <Badge tone="red">over the ceiling</Badge>}
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded bg-surface-2">
+              <div
+                className={status.over ? "h-full bg-red-500" : "h-full bg-accent"}
+                style={{ width: `${Math.round(status.fraction * 100)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {unpricedCalls > 0 && (
+        <p className="mt-3 text-xs text-muted">
+          {unpricedCalls} call{unpricedCalls === 1 ? "" : "s"} in this window had no configured
+          rate, so the figures above are lower than the real bill.{" "}
+          {unpricedPolicy === "block"
+            ? "New generations from an unpriced provider are refused until a rate is configured."
+            : "GENERATION_SPEND_UNPRICED=allow is set, so unpriced generations are permitted and the ceiling cannot see them."}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/** Says a ceiling is configured but unreadable, so generation is stopped. */
+export function CeilingMisconfigured({ variables }: { variables: string[] }) {
+  return (
+    <Card className="border-red-900 p-5">
+      <h2 className="text-sm font-semibold text-foreground">Spend ceiling not in force</h2>
+      <p className="mt-1 text-sm text-muted">
+        {variables.join(" and ")} {variables.length === 1 ? "is" : "are"} set but could not be
+        read, so paid generation is stopped until fixed. The format is{" "}
+        <code className="text-foreground">25 USD</code>, or{" "}
+        <code className="text-foreground">25 USD, 20 EUR</code> for more than one currency.
+      </p>
     </Card>
   );
 }

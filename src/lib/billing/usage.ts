@@ -49,13 +49,25 @@ export interface AttemptFacts {
 }
 
 /**
+ * What a call consumes — the parts of an attempt that decide its size.
+ *
+ * Narrower than `AttemptFacts` so a *prospective* call can be measured before
+ * there is a Generation row to point at, which is what a spend ceiling has to
+ * do: it must price the call it is about to allow, not the one it just made.
+ */
+export type BillableShape = Pick<
+  AttemptFacts,
+  "providerId" | "model" | "mode" | "durationSeconds" | "images"
+>;
+
+/**
  * Decides what was consumed, in the unit the configured rate bills in.
  *
  * The rate's unit leads, because the operator knows how their contract is
  * priced and this code does not. With no rate configured the quantity is still
  * recorded, so that configuring a rate later makes the history priceable.
  */
-export function quantityFor(facts: AttemptFacts): { quantity: number; unit: UsageUnit } {
+export function quantityFor(facts: BillableShape): { quantity: number; unit: UsageUnit } {
   const rate = rateFor(facts.providerId, facts.model);
   const isVideo = facts.mode === "VIDEO" || facts.mode === "IMAGE_TO_VIDEO";
 
