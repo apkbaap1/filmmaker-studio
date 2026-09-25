@@ -1,11 +1,15 @@
 # Filmmaker Studio — project status
 
-**As of commit `7cfd25a`+ (Second image provider), branch `main`.**
+**As of commit `d87219a`+ (CI and hardening), branch `main`.**
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **981 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **1045 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
+
+All four gates are now one command — `npm run verify` — and GitHub Actions runs
+it on every push and pull request against a real PostgreSQL. `npm test` cannot
+be run without typechecking first.
 
 > Keep this file current. It exists because the original planning history was
 > lost, and a status report that lives only in a chat window is one deletion
@@ -80,6 +84,8 @@ Reconstructed from `git log --reverse`:
 | 12.4 | Spend ceilings — a cap on money, not just on attempts |
 | 12.5 | Collaborator invitations and project permissions |
 | 12.6 | A second real image provider, and the seam audit it enabled |
+| 12.7 | Production hardening — CI, a wired-in typecheck, server-action tests |
+| 12.8 | Server-action coverage extended to generation and timeline |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -205,6 +211,19 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   module mocking closes it: the session is substituted and the real action runs
   against a real database. The membership actions are covered directly, which is
   where the workaround was most strained.
+- **Server-action coverage extended** (12.8) — the generation and timeline
+  actions, using the same harness. These are the two sets whose rules were
+  previously only visible by reading them: that a VIEWER cannot start or retry
+  a generation, that a job already with a provider cannot be cancelled, that
+  deleting an attempt record leaves the render in the gallery, and — the rule
+  the whole edit view rests on — that trimming, splitting or deleting a clip
+  never moves the shot. Each is now checked by doing it and then looking at the
+  shot.
+
+  It found one small defect: `min(1)` on a sequence or track name does not
+  trim, so three spaces was a valid name and produced a tab label that was
+  blank, unclickable and indistinguishable from its neighbours. Both schemas
+  now trim before the length check.
 
 ---
 
@@ -418,7 +437,10 @@ Until a real generation completes, Google Veo is **implemented, not verified**.
 
 ## 14. Last thing implemented
 
-**Workstream 12.7 — production hardening**: `npm run verify`, a `pretest`
+**Workstream 12.8 — server-action coverage extended** to the generation and
+timeline actions, and the name-trimming defect that found.
+
+Before that, **workstream 12.7 — production hardening**: `npm run verify`, a `pretest`
 typecheck, GitHub Actions running every gate against a real PostgreSQL, and the
 membership server actions tested directly for the first time — the session is
 substituted with Node's module mocking rather than worked around.
@@ -441,7 +463,7 @@ Ordered by risk retired per unit of effort.
 1. One real Veo generation → closes 11.5. Needs a credential in a reachable
    runtime; everything else is ready.
 2. One real OpenAI image generation → closes 11.4-R.
-3. Wire `tsc --noEmit` into `npm test` or a `typecheck` script, and add CI.
+3. ~~Wire `tsc --noEmit` into `npm test`, and add CI~~ — **done** (12.7).
 
 **B. Make the output deliverable**
 4. ~~Export asset bundling~~ — **done** (12.1).
@@ -458,8 +480,13 @@ Ordered by risk retired per unit of effort.
 **D. Depth and hardening**
 11. A second **video** provider, to finish proving the adapter seams hold. The
     image half is done (12.6).
-12. Wire `tsc --noEmit` into the validation pipeline; add CI.
-13. Server-action test coverage.
+12. ~~Wire `tsc --noEmit` into the validation pipeline; add CI~~ — **done**
+    (12.7). This was a duplicate of item 3; both are closed by the same work.
+13. ~~Server-action test coverage~~ — **done** (12.7, 12.8): membership,
+    generation and timeline. The remaining action files (scenes, shots,
+    schedule, budget and the rest) are thin CRUD over the same
+    `requireProjectAccess` gate and can be covered the same way when it is
+    worth the time.
 
 ---
 
@@ -487,8 +514,8 @@ Two pieces of code do remain, both optional:
     the image half was: no non-Google video vendor's contract can be
     established from here, since outbound network to provider hosts is refused
     and npm is the only reachable source of an authoritative one.
-  - The generation and timeline server actions, which can now be tested the same
-    way the membership ones are.
+  - ~~The generation and timeline server actions~~ — done (12.8). The thinner
+    CRUD action files remain uncovered, and are the least interesting of them.
 
 Live provider verification (Veo, OpenAI) remains deferred by decision, not by
 blockage.

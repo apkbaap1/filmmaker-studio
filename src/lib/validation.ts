@@ -242,7 +242,10 @@ export const generationPromptSchema = z.object({
 // that can write a ShotListItem field: the timeline never edits the shot.
 
 export const sequenceSchema = z.object({
-  name: z.string().min(1, "Name the edit").max(120),
+  // Trimmed before the length check, so whitespace is not a name. Without it
+  // three spaces passed `min(1)` and produced an edit whose tab label was
+  // blank — nameable, unclickable, and impossible to tell from its neighbours.
+  name: z.string().trim().min(1, "Name the edit").max(120),
   notes: z.string().max(2000).optional().or(z.literal("")),
 });
 
@@ -269,7 +272,9 @@ export const clipTransitionSchema = z.object({
  * has to keep reachable, so it is nullable rather than defaulted to 0.
  */
 export const audioTrackSchema = z.object({
-  name: z.string().min(1, "Name the track").max(120),
+  // Trimmed for the same reason as a sequence's name: a lane labelled with
+  // spaces is a lane nobody can identify.
+  name: z.string().trim().min(1, "Name the track").max(120),
   role: z.enum(["DIALOGUE", "MUSIC", "SFX", "AMBIENCE"]),
   // -60 dB is silence for practical purposes and +12 is as much boost as a
   // preview mix has any business asking for.
