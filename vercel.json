@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+
+  "crons": [
+    {
+      "path": "/api/cron/worker",
+      "schedule": "* * * * *"
+    }
+  ],
+
+  "functions": {
+    "src/app/api/cron/worker/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

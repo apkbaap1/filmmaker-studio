@@ -20,9 +20,10 @@ queued, which looks like the app being broken and is the app waiting. It is also
 the only process that needs a provider credential — the web container is
 deliberately not given one, so a compromise there reaches no billable account.
 
-That shape is why a pure serverless host does not fit: the worker is a
-long-running process that must be able to poll a provider for minutes. Anywhere
-that can run two containers will do.
+Anywhere that can run two containers will do, and that is the shape to prefer.
+A serverless host cannot run the third process at all — there the queue is
+worked by a scheduler instead, which is a real but lesser arrangement. See
+[Vercel](#vercel) below.
 
 ---
 
@@ -42,6 +43,110 @@ starts the web server and the worker. The app is on `http://localhost:3000`.
 This is a real deployment and it is **not** a highly-available one: one Postgres,
 one volume, no backups configured. Read the rest of this page before pointing a
 domain at it.
+
+---
+
+## Vercel
+
+Vercel runs the web half of this application well and cannot run the worker at
+all. Every invocation there is bounded and then killed, so nothing can sit and
+poll a provider for minutes. Four things follow, and none of them are optional.
+
+### 1. The worker becomes a scheduled endpoint
+
+`vercel.json` schedules `/api/cron/worker`. Each invocation claims what it can
+and stops cleanly before the platform's timeout.
+
+It claims through the same compare-and-swap lease as `npm run worker`, so two
+overlapping invocations cannot take the same job and one killed mid-step loses
+its lease by expiry and is picked up again. That is not new concurrency; it is
+the queue built in 11.3, driven by a different clock.
+
+**Set `CRON_SECRET`.** Without it the endpoint refuses every request, including
+the scheduler's. It fails closed on purpose: the alternative is a public URL
+that claims jobs and calls billed providers.
+
+```
+CRON_SECRET=$(openssl rand -base64 32)
+```
+
+Vercel sends this as `Authorization: Bearer <CRON_SECRET>` automatically.
+
+**What you give up:** jobs advance in bursts at the schedule's cadence rather
+than continuously, so a generation finishes up to one interval later than it
+otherwise would. An image generation that takes 20 seconds of provider time can
+take a minute of wall clock. A video generation polls once per interval instead
+of continuously.
+
+**Check two things against your own plan**, because they differ by plan and this
+file will not tell you numbers it cannot verify:
+
+- **How often your plan will run a cron job.** The schedule in `vercel.json` is
+  every minute. If your plan will not run it that often, the cadence penalty
+  above grows to whatever your plan does allow — on a daily-only plan this
+  application does not work.
+- **The function timeout ceiling.** `maxDuration` in `vercel.json` must be
+  something your plan permits, and `CRON_WORKER_DEADLINE_MS` (default 50000)
+  must stay comfortably below it. The worker has to be what stops the run: if
+  the platform kills it first, it dies holding a lease and that job stalls until
+  the lease expires.
+
+An invocation that finds an empty queue returns in milliseconds rather than
+waiting out its budget, so an idle deployment costs two queries a minute, not a
+minute of compute a minute. If `hitDeadline` is persistently true in the cron
+log, the schedule is not keeping up with the work.
+
+### 2. Object storage is required, not recommended
+
+Vercel's filesystem is ephemeral. The local-disk storage backend would accept
+every upload and lose it, which is worse than refusing — so when `VERCEL` is set
+in the environment (Vercel sets it for you) and no `S3_*` configuration is
+present, the first operation that touches storage **throws** instead of falling
+back to local disk.
+
+That means an unconfigured deployment builds and serves pages normally and then
+fails the first upload or generation, loudly, with a message naming the
+variables it wants. It does not fail at boot, so do not read a successful deploy
+as evidence that storage is configured.
+
+Any S3-compatible store works (Cloudflare R2, AWS S3, Backblaze B2, Wasabi).
+The bucket must be **private**: this application never depends on a public
+object URL and decides access itself.
+
+### 3. Postgres needs a pooled connection string
+
+Serverless functions scale by count, and each one opens its own connection.
+A direct Postgres connection string will exhaust `max_connections` under load in
+a way that looks like random 500s. Use the pooled endpoint your provider offers
+(Neon's pooler, Supabase's transaction pooler, PgBouncer) as `DATABASE_URL`.
+
+Migrations are the exception — `prisma migrate deploy` needs a **direct**
+connection, not a pooled one. Run it from your own machine or a build step
+against the direct URL, not against the pooler.
+
+### 4. Upload size
+
+Two different ceilings apply to two different paths, and only one of them is
+about your users:
+
+- **Browser uploads** go through server actions, capped at `50mb` by
+  `bodySizeLimit` in `next.config.ts`. A serverless platform imposes its own
+  request body limit on top of that, and whichever is smaller wins. Check
+  yours; if it is below 50mb, that is the real limit and a larger upload fails
+  as a platform error rather than as the app's own message.
+- **Provider media** is downloaded by the worker, capped at 500MB for video
+  (`MAX_BYTES` in `src/lib/storage/keys.ts`). On Vercel that download happens
+  inside the cron function, in memory. The function needs enough memory for the
+  largest clip your video provider returns, or the generation fails at the last
+  step — after you have paid for it.
+
+### What it costs to run this way
+
+The honest summary: the app works on Vercel, generation is slower and less
+continuous than it is with a real worker, and the failure modes are quieter.
+If you can run a container anywhere — Fly, Railway, Render, a VPS with the
+`docker-compose.yml` above — run `npm run worker` instead and skip this entire
+section.
 
 ---
 
@@ -185,3 +290,12 @@ attempts. Put the app behind something that does before exposing it publicly.
 - [ ] Worker running, and a test generation moving off `QUEUED`
 - [ ] Something rate-limiting sign-in
 - [ ] You know there is no password reset
+
+On Vercel, additionally:
+
+- [ ] `CRON_SECRET` set — without it the scheduled worker refuses everything
+- [ ] `/api/cron/worker` answering 401 without a token and 200 with it
+- [ ] The cron job actually firing at the cadence your plan allows
+- [ ] `CRON_WORKER_DEADLINE_MS` below the function's `maxDuration`
+- [ ] `DATABASE_URL` pointing at a **pooled** endpoint, migrations run direct
+- [ ] Function memory above the largest clip your video provider returns

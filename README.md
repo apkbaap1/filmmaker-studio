@@ -239,6 +239,7 @@ locations, equipment, and budget tracking.
   14. ✅ CI, a wired-in typecheck, and server actions tested directly
   15. ✅ Image-to-video end to end — pick a frame, animate it, get a clip
   16. ✅ Deployment — containers, a compose stack, health, and a guide
+  17. ✅ Vercel — the worker as a scheduled endpoint, and the trade it makes
 
 ## Getting started
 
@@ -378,7 +379,7 @@ deployable:
 | **Asset storage** | S3-compatible object storage, local disk in development | Configure `S3_*` and run `npm run storage:migrate` |
 | **Image provider** | Two: OpenAI gpt-image-1 and Google Gemini image output. Both implemented and tested; **neither has been run against the live API** | A credential and network egress — see "Image generation" |
 | **Video providers** | Google Veo 3.1 adapter, implemented and unit-tested; **never run against the live API** — see `docs/veo-api-contract.md` | A credential in a runtime that can reach Google, then one real generation |
-| **Generation jobs** | Durable Postgres-backed queue + worker | Run `npm run worker` alongside the app (see below) |
+| **Generation jobs** | Durable Postgres-backed queue + worker, or a scheduled endpoint where no process can run | Run `npm run worker` alongside the app, or set `CRON_SECRET` and schedule `/api/cron/worker` (see below) |
 | **Billing / quotas** | Attempt ceilings, opt-in spend ceilings, and a per-attempt ledger attributed to the user who started each generation | Rates configured in `GENERATION_RATES`, which spend ceilings need to work |
 | **Export assets** | JSON, CSV, PDF, and a ZIP bundle carrying the media itself | ZIP64, for a bundle or single asset over 4 GiB |
 | **Timeline transitions** | All six edit points: dissolves overlap and shorten the ruler, fades run through black, cuts are instant, J- and L-cuts move the sound | — |
@@ -419,7 +420,8 @@ with no cloud credentials and so the test suite exercises the same interface
 production uses.
 
 > **Local disk is not production infrastructure.** It does not survive a
-> serverless deploy (Vercel and friends have no persistent filesystem), does not
+> serverless deploy — on Vercel the application refuses it outright rather than
+> accepting an upload it is about to lose — does not
 > survive a container being replaced, cannot be shared between app instances,
 > and has no redundancy, lifecycle policy or CDN. Generated **video** makes this
 > sharper than it was for stills: clips are large, and losing them loses work
@@ -721,6 +723,25 @@ npm run worker    # the generation worker — a separate process
 
 Both are needed for a generation to complete. With no worker running, jobs simply
 queue up and the UI says so; start one and they drain.
+
+### On a host that cannot run a process
+
+A serverless platform has nowhere to put the worker: every invocation is bounded
+and then killed, so nothing can sit and poll a provider for minutes. There the
+queue is worked by `/api/cron/worker` instead, called on a schedule, doing as
+much as it can before its time runs out.
+
+It claims through the same compare-and-swap lease as the process, so two
+overlapping invocations cannot take the same job. It refuses every request
+unless `CRON_SECRET` is set and presented as a bearer token — an endpoint that
+claims jobs and calls billed providers does not get a permissive default. And it
+returns immediately when nothing is in flight, so an idle deployment is not
+paying for a worker that has nothing to do.
+
+The trade is real: jobs advance in bursts at the schedule's cadence rather than
+continuously, so a generation finishes up to one interval later than it
+otherwise would. **If the platform can run a container, run `npm run worker`
+instead.** See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#vercel).
 
 ### The job
 

@@ -4,7 +4,7 @@
 Reconstructed from the codebase itself: git history, the Prisma schema, the
 route tree and the test suite — not from conversation memory.
 
-Health at time of writing: **1093 tests pass, 0 fail, 0 cancelled**;
+Health at time of writing: **1103 tests pass, 0 fail, 0 cancelled**;
 `next build` compiles; `tsc --noEmit` clean; `eslint` clean.
 
 All four gates are now one command — `npm run verify` — and GitHub Actions runs
@@ -88,6 +88,7 @@ Reconstructed from `git log --reverse`:
 | 12.8 | Server-action coverage extended to generation and timeline |
 | 12.9 | Image-to-video, end to end in the UI |
 | 12.10 | Deployment — containers, compose, health, and the guide |
+| 12.11 | Vercel — the worker as a scheduled endpoint |
 
 **11.6 was never defined or executed.** The numbering jumps 11.5 → 11.7
 because 11.7 (per-user spend tracking) was named in the codebase itself.
@@ -256,6 +257,29 @@ infrastructure (real Postgres, real HTTP servers, real file I/O).
   billable account. `deployment.test.ts` guards the invariants that would fail
   silently — a secret baked into a layer, a runtime image running as root,
   health behind auth, the worker quietly dropped from the stack.
+
+- **Vercel** (12.11) — the platform cannot run the worker process at all, so
+  there the queue is worked by `/api/cron/worker`, scheduled from `vercel.json`
+  and claiming through the same compare-and-swap lease as `npm run worker`. It
+  is a lesser arrangement and the docs say so: jobs advance in bursts at the
+  schedule's cadence rather than continuously.
+
+  Three things make it safe rather than merely working. It **fails closed** —
+  with no `CRON_SECRET` it refuses every request, because a public URL that
+  claims jobs and calls billed providers is the worst thing to leave exposed.
+  It **stops before the platform does**, so a worker is never killed mid-step
+  holding a lease. And it **returns immediately on an empty queue** instead of
+  waiting out its budget, which is the difference between two queries a minute
+  and a minute of billed compute a minute, forever, on an idle deployment.
+
+  Storage stops being a recommendation there: with `VERCEL` set and no `S3_*`
+  configured, `storage()` throws rather than falling back to a disk that is
+  discarded, because accepting an upload and losing it is worse than refusing.
+
+  Verified against the real standalone server: 401 with no token, 401 with a
+  wrong token, 200 with the right one, and a genuinely queued job (stub
+  provider, nothing billed) driven `QUEUED → COMPLETED` through the endpoint in
+  338ms. An empty queue returns in 16ms against 50006ms before the early exit.
 
   Verified as far as this environment allows: the standalone server was started
   for real and answered `/api/health` with a live database round-trip while
@@ -484,7 +508,13 @@ Until a real generation completes, Google Veo is **implemented, not verified**.
 
 ## 14. Last thing implemented
 
-**Workstream 12.10 — deployment**: a two-target Dockerfile, a compose stack, a
+**Workstream 12.11 — Vercel**: `/api/cron/worker`, a fail-closed bearer check,
+an early exit on an empty queue, a storage guard that refuses an ephemeral disk,
+and the Vercel half of `docs/DEPLOYMENT.md` — written without asserting any of
+Vercel's own plan numbers, which are not reachable from this environment and are
+therefore the reader's to check.
+
+Before that, **workstream 12.10 — deployment**: a two-target Dockerfile, a compose stack, a
 health endpoint, `docs/DEPLOYMENT.md`, and the two invitation-flow bugs that
 looking at the middleware turned up.
 
@@ -531,9 +561,10 @@ Ordered by risk retired per unit of effort.
 **C. Make it safe to expose to other people**
 8. ~~Spend ceilings, not just attempt ceilings~~ — **done** (12.4).
 9. ~~Collaborator invite flow and project permissions~~ — **done** (12.5).
-10. Deployment — **the codebase half is done** (12.10): containers, compose,
-    health, and a guide. What remains is not code: a managed Postgres, a bucket,
-    a host, real secrets, and a mailer (which password reset is blocked on).
+10. Deployment — **the codebase half is done** (12.10, 12.11): containers,
+    compose, health, a guide, and a scheduled worker for Vercel. What remains is
+    not code: a managed Postgres with a pooled connection string, a private
+    bucket, real secrets, and a mailer (which password reset is blocked on).
 
 **D. Depth and hardening**
 11. A second **video** provider, to finish proving the adapter seams hold. The

@@ -20,7 +20,17 @@ const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up"];
  * `/api/health` is public because a load balancer has no session and must not
  * need one to ask whether the process is alive.
  */
-const PUBLIC_PREFIXES = ["/api/auth", "/api/register", "/api/health", "/invitations/"];
+const PUBLIC_PREFIXES = [
+  "/api/auth",
+  "/api/register",
+  "/api/health",
+  "/invitations/",
+  // The scheduler has no session either. This is not unprotected: the route
+  // requires a bearer token matching CRON_SECRET and refuses everything when
+  // that is unset. Leaving it behind the session redirect would simply make the
+  // scheduler receive a sign-in page and report success.
+  "/api/cron/",
+];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;

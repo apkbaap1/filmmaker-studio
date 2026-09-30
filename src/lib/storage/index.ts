@@ -17,9 +17,33 @@ import type { StorageProvider, StorageProviderId } from "./types.ts";
  */
 let cached: StorageProvider | undefined;
 
+/**
+ * True when the process is running on a platform with no persistent disk.
+ *
+ * `VERCEL` is set in every Vercel build and runtime. There the filesystem is
+ * ephemeral and per-invocation: a file written by the request that generated it
+ * is gone before the request that serves it, and the two may not even be the
+ * same machine. Local disk storage is not merely inadvisable there, it silently
+ * loses media.
+ */
+function hasNoPersistentDisk(): boolean {
+  return Boolean(process.env.VERCEL);
+}
+
 export function storage(): StorageProvider {
   if (cached) return cached;
   const config = s3ConfigFromEnv();
+
+  if (!config && hasNoPersistentDisk()) {
+    // Refused rather than degraded. Falling back to local disk here would
+    // accept an upload, report success, and lose the file — the worst of the
+    // three possible behaviours, because nothing looks wrong until someone
+    // opens the project again.
+    throw new Error(
+      "Object storage is required on this platform: its filesystem is ephemeral, so media written to local disk is lost. Set S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (S3_ENDPOINT too, for a non-AWS provider). See docs/DEPLOYMENT.md."
+    );
+  }
+
   cached = config ? new S3StorageProvider(config) : new LocalStorageProvider();
   return cached;
 }
