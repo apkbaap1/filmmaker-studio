@@ -121,8 +121,19 @@ a way that looks like random 500s. Use the pooled endpoint your provider offers
 (Neon's pooler, Supabase's transaction pooler, PgBouncer) as `DATABASE_URL`.
 
 Migrations are the exception — `prisma migrate deploy` needs a **direct**
-connection, not a pooled one. Run it from your own machine or a build step
-against the direct URL, not against the pooler.
+connection, not a pooled one. Run it from your own machine against the direct
+URL, not against the pooler and not from the Vercel build:
+
+```bash
+DATABASE_URL="<the DIRECT url, not the pooled one>" npx prisma migrate deploy
+```
+
+**Do this before the first sign-up, and again after every schema change.** A
+deployment against an unmigrated database looks healthy: the landing page and
+the sign-in form render, because neither touches the database. The first thing
+that does is sign-in or sign-up, which fails as a server-side exception with
+only a digest to show for it. The underlying error is `P2021, the table
+public.User does not exist` and it is visible only in the runtime logs.
 
 ### 4. Upload size
 

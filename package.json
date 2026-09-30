@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "//build": "prisma generate runs first because the client is generated into node_modules, which is not committed and which Vercel restores from cache without re-running install hooks. A build that skips it ships whatever client the cache happened to hold — stale against the current schema, or absent entirely.",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint --max-warnings=0",
     "typecheck": "tsc --noEmit",

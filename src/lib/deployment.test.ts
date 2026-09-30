@@ -238,3 +238,36 @@ describe("the runtime image stays small", () => {
     assert.match(dockerfile, /\/app\/public/, "nor is the public directory");
   });
 });
+
+describe("the build produces a client that matches the schema", () => {
+  it("generates the Prisma client as part of the build", () => {
+    // The client is generated into node_modules, which is not committed. A
+    // platform that restores node_modules from cache does not re-run install
+    // hooks, so a build that does not generate explicitly ships whatever client
+    // the cache held — stale against the current schema, or missing. Either way
+    // it fails at the first query rather than at build time, which means it
+    // fails in production, on a page that worked yesterday.
+    const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+    assert.match(
+      pkg.scripts.build,
+      /prisma generate/,
+      "the build does not generate the Prisma client"
+    );
+  });
+
+  it("generates into the default location the client imports from", () => {
+    // If the generator is given a custom `output`, the assertion above stops
+    // being sufficient: the import in src/lib/prisma.ts would have to change
+    // with it. This fails loudly if someone adds one, rather than letting the
+    // two drift apart silently.
+    const schema = read("prisma/schema.prisma");
+    const generator = schema.slice(
+      schema.indexOf("generator client"),
+      schema.indexOf("datasource db")
+    );
+    assert.ok(
+      !/^\s*output\s*=/m.test(generator),
+      "the generator now has a custom output; check what imports the client"
+    );
+  });
+});
